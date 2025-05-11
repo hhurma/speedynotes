@@ -16,4 +16,4 @@ Bu proje, PyQt6 ile geliştirilmiş, tablı ve hızlı açılan bir not defteri 
 ## Özellikler
 - Hızlı açılış
 - Tablı not yönetimi
-- Notlar uygulama kapanana kadar saklanır 
+- Notlar uygulama kullanıcı notu "kapat x" butonundan kapatıncaya kadar saklanır. 
