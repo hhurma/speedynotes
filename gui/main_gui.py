@@ -183,6 +183,15 @@ class NotDefteriGUI(QMainWindow):
         self.logger.info(f"Yeni not eklendi: Not {idx+1}")
 
     def _sekme_kapat_indeksli(self, idx):
+        baslik = self.tabs.tabText(idx)
+        yanit = QMessageBox.question(
+            self,
+            "Notu Kapat",
+            f"'{baslik}' sekmesini kapatmak istediğinize emin misiniz?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+        )
+        if yanit != QMessageBox.StandardButton.Yes:
+            return
         if self.tabs.count() == 1:
             self.tabs.removeTab(idx)
             self.memory.remove_note(idx)
