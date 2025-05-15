@@ -113,7 +113,7 @@ class NotDefteriGUI(QMainWindow):
         toolbar = QToolBar()
         toolbar.setMovable(False)
         toolbar.setFloatable(False)
-        toolbar.setIconSize(QSize(24, 24))
+        toolbar.setIconSize(QSize(20, 20))
         self.addToolBar(toolbar)
 
         yeni_icon = qta.icon('fa5s.plus', color='green')
@@ -152,6 +152,92 @@ class NotDefteriGUI(QMainWindow):
         arama_aksiyon = QAction(arama_icon, "Notlarda Ara", self)
         arama_aksiyon.triggered.connect(self._arama_ac)
         toolbar.addAction(arama_aksiyon)
+
+        toolbar.addSeparator()
+
+        # Bold
+        bold_icon = qta.icon('fa5s.bold', color='#1976D2')  # Mavi
+        bold_action = QAction(bold_icon, "Kalın (Ctrl+B)", self)
+        bold_action.setShortcut('Ctrl+B')
+        bold_action.triggered.connect(self._bold_text)
+        toolbar.addAction(bold_action)
+        self.addAction(bold_action)
+
+        # Italic
+        italic_icon = qta.icon('fa5s.italic', color='#388E3C')  # Yeşil
+        italic_action = QAction(italic_icon, "İtalik (Ctrl+I)", self)
+        italic_action.setShortcut('Ctrl+I')
+        italic_action.triggered.connect(self._italic_text)
+        toolbar.addAction(italic_action)
+        self.addAction(italic_action)
+
+        # Strikethrough
+        strike_icon = qta.icon('fa5s.strikethrough', color='#F44336')  # Kırmızı
+        strike_action = QAction(strike_icon, "Üstü Çizili (Ctrl+Shift+S)", self)
+        strike_action.setShortcut('Ctrl+Shift+S')
+        strike_action.triggered.connect(self._strike_text)
+        toolbar.addAction(strike_action)
+        self.addAction(strike_action)
+
+        toolbar.addSeparator()
+
+        # Kes
+        cut_icon = qta.icon('fa5s.cut', color='#FF9800')  # Turuncu
+        cut_action = QAction(cut_icon, "Kes (Ctrl+X)", self)
+        cut_action.setShortcut('Ctrl+X')
+        cut_action.triggered.connect(self._cut_text)
+        toolbar.addAction(cut_action)
+        self.addAction(cut_action)
+
+        # Kopyala
+        copy_icon = qta.icon('fa5s.copy', color='#0097A7')  # Camgöbeği
+        copy_action = QAction(copy_icon, "Kopyala (Ctrl+C)", self)
+        copy_action.setShortcut('Ctrl+C')
+        copy_action.triggered.connect(self._copy_text)
+        toolbar.addAction(copy_action)
+        self.addAction(copy_action)
+
+        # Yapıştır
+        paste_icon = qta.icon('fa5s.paste', color='#7B1FA2')  # Mor
+        paste_action = QAction(paste_icon, "Yapıştır (Ctrl+V)", self)
+        paste_action.setShortcut('Ctrl+V')
+        paste_action.triggered.connect(self._paste_text)
+        toolbar.addAction(paste_action)
+        self.addAction(paste_action)
+
+        toolbar.addSeparator()
+
+        # Undo
+        undo_icon = qta.icon('fa5s.undo', color='#607D8B')  # Gri
+        undo_action = QAction(undo_icon, "Geri Al (Ctrl+Z)", self)
+        undo_action.setShortcut('Ctrl+Z')
+        undo_action.triggered.connect(self._undo_text)
+        toolbar.addAction(undo_action)
+        self.addAction(undo_action)
+
+        # Redo
+        redo_icon = qta.icon('fa5s.redo', color='#43A047')  # Yeşil
+        redo_action = QAction(redo_icon, "Yinele (Ctrl+Y)", self)
+        redo_action.setShortcut('Ctrl+Y')
+        redo_action.triggered.connect(self._redo_text)
+        toolbar.addAction(redo_action)
+        self.addAction(redo_action)
+
+        # Yazı boyutunu artır (text-height, mavi)
+        font_increase_icon = qta.icon('fa5s.text-height', color='#1976D2')
+        font_increase_action = QAction(font_increase_icon, "Yazı Boyutunu Artır (Ctrl+Shift+Yukarı)", self)
+        font_increase_action.setShortcut('Ctrl+Shift+Up')
+        font_increase_action.triggered.connect(self._font_increase)
+        toolbar.addAction(font_increase_action)
+        self.addAction(font_increase_action)
+
+        # Yazı boyutunu azalt (text-height, kırmızı)
+        font_decrease_icon = qta.icon('fa5s.text-height', color='#F44336')
+        font_decrease_action = QAction(font_decrease_icon, "Yazı Boyutunu Azalt (Ctrl+Shift+Aşağı)", self)
+        font_decrease_action.setShortcut('Ctrl+Shift+Down')
+        font_decrease_action.triggered.connect(self._font_decrease)
+        toolbar.addAction(font_decrease_action)
+        self.addAction(font_decrease_action)
 
     def _show_about(self):
         QMessageBox.information(self, "Speedy Notes Hakkında",
@@ -346,6 +432,74 @@ class NotDefteriGUI(QMainWindow):
         pencere = self.frameGeometry()
         pencere.moveCenter(ekran.center())
         self.move(pencere.topLeft())
+
+    def _bold_text(self):
+        not_edit = self._aktif_not_edit()
+        if not_edit:
+            fmt = not_edit.currentCharFormat()
+            fmt.setFontWeight(700 if fmt.fontWeight() != 700 else 400)
+            not_edit.mergeCurrentCharFormat(fmt)
+
+    def _italic_text(self):
+        not_edit = self._aktif_not_edit()
+        if not_edit:
+            fmt = not_edit.currentCharFormat()
+            fmt.setFontItalic(not fmt.fontItalic())
+            not_edit.mergeCurrentCharFormat(fmt)
+
+    def _strike_text(self):
+        not_edit = self._aktif_not_edit()
+        if not_edit:
+            fmt = not_edit.currentCharFormat()
+            fmt.setFontStrikeOut(not fmt.fontStrikeOut())
+            not_edit.mergeCurrentCharFormat(fmt)
+
+    def _cut_text(self):
+        not_edit = self._aktif_not_edit()
+        if not_edit:
+            not_edit.cut()
+
+    def _copy_text(self):
+        not_edit = self._aktif_not_edit()
+        if not_edit:
+            not_edit.copy()
+
+    def _paste_text(self):
+        not_edit = self._aktif_not_edit()
+        if not_edit:
+            not_edit.paste()
+
+    def _undo_text(self):
+        not_edit = self._aktif_not_edit()
+        if not_edit:
+            not_edit.undo()
+
+    def _redo_text(self):
+        not_edit = self._aktif_not_edit()
+        if not_edit:
+            not_edit.redo()
+
+    def _font_increase(self):
+        not_edit = self._aktif_not_edit()
+        if not_edit:
+            fmt = not_edit.currentCharFormat()
+            size = fmt.fontPointSize() or not_edit.fontPointSize() or 12
+            fmt.setFontPointSize(size + 1)
+            not_edit.mergeCurrentCharFormat(fmt)
+
+    def _font_decrease(self):
+        not_edit = self._aktif_not_edit()
+        if not_edit:
+            fmt = not_edit.currentCharFormat()
+            size = fmt.fontPointSize() or not_edit.fontPointSize() or 12
+            fmt.setFontPointSize(max(6, size - 1))
+            not_edit.mergeCurrentCharFormat(fmt)
+
+    def _aktif_not_edit(self):
+        widget = self.tabs.currentWidget()
+        if widget:
+            return widget.findChild(QTextEdit)
+        return None
 
 def main():
     app = QApplication(sys.argv)
