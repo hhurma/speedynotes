@@ -130,29 +130,7 @@ class NotDefteriGUI(QMainWindow):
         kopyala_aksiyon = QAction(kopyala_icon, "Notu Kopyala", self)
         kopyala_aksiyon.triggered.connect(self._notu_kopyala)
         toolbar.addAction(kopyala_aksiyon)
-
-        tema_icon = qta.icon('fa5s.adjust', color='purple')
-        self.tema_aksiyon = QAction(tema_icon, "Tema Değiştir", self)
-        self.tema_aksiyon.triggered.connect(self._tema_toggle)
-        toolbar.addAction(self.tema_aksiyon)
-
-        info_icon = qta.icon('fa5s.info-circle', color='gray')
-        info_aksiyon = QAction(info_icon, "Hakkında", self)
-        info_aksiyon.triggered.connect(self._show_about)
-        toolbar.addAction(info_aksiyon)
-
-        # Ctrl+N kısayolu ile yeni not
-        yeni_shortcut = QAction(self)
-        yeni_shortcut.setShortcut('Ctrl+N')
-        yeni_shortcut.triggered.connect(self._yeni_not)
-        self.addAction(yeni_shortcut)
-
-        # Ctrl+F kısayolu ile arama
-        arama_icon = qta.icon('fa5s.search', color='blue')
-        arama_aksiyon = QAction(arama_icon, "Notlarda Ara", self)
-        arama_aksiyon.triggered.connect(self._arama_ac)
-        toolbar.addAction(arama_aksiyon)
-
+        
         toolbar.addSeparator()
 
         # Bold
@@ -179,6 +157,23 @@ class NotDefteriGUI(QMainWindow):
         toolbar.addAction(strike_action)
         self.addAction(strike_action)
 
+        font_decrease_icon = qta.icon('fa5s.text-height', color='#F44336')
+        font_decrease_action = QAction(font_decrease_icon, "Yazı Boyutunu Azalt (Ctrl+Shift+Aşağı)", self)
+        font_decrease_action.setShortcut('Ctrl+Shift+Down')
+        font_decrease_action.triggered.connect(self._font_decrease)
+        toolbar.addAction(font_decrease_action)
+        self.addAction(font_decrease_action)
+        
+        # Yazı boyutu artır/azalt ikonları
+        font_increase_icon = qta.icon('fa5s.text-height', color='#1976D2')
+        font_increase_action = QAction(font_increase_icon, "Yazı Boyutunu Artır (Ctrl+Shift+Yukarı)", self)
+        font_increase_action.setShortcut('Ctrl+Shift+Up')
+        font_increase_action.triggered.connect(self._font_increase)
+        toolbar.addAction(font_increase_action)
+        self.addAction(font_increase_action)
+
+        
+        
         toolbar.addSeparator()
 
         # Kes
@@ -223,25 +218,36 @@ class NotDefteriGUI(QMainWindow):
         toolbar.addAction(redo_action)
         self.addAction(redo_action)
 
-        # Yazı boyutunu artır (text-height, mavi)
-        font_increase_icon = qta.icon('fa5s.text-height', color='#1976D2')
-        font_increase_action = QAction(font_increase_icon, "Yazı Boyutunu Artır (Ctrl+Shift+Yukarı)", self)
-        font_increase_action.setShortcut('Ctrl+Shift+Up')
-        font_increase_action.triggered.connect(self._font_increase)
-        toolbar.addAction(font_increase_action)
-        self.addAction(font_increase_action)
+        # En sona separator ekle
+        toolbar.addSeparator()
 
-        # Yazı boyutunu azalt (text-height, kırmızı)
-        font_decrease_icon = qta.icon('fa5s.text-height', color='#F44336')
-        font_decrease_action = QAction(font_decrease_icon, "Yazı Boyutunu Azalt (Ctrl+Shift+Aşağı)", self)
-        font_decrease_action.setShortcut('Ctrl+Shift+Down')
-        font_decrease_action.triggered.connect(self._font_decrease)
-        toolbar.addAction(font_decrease_action)
-        self.addAction(font_decrease_action)
+        # Ctrl+F kısayolu ile arama
+        arama_icon = qta.icon('fa5s.search', color='blue')
+        arama_aksiyon = QAction(arama_icon, "Notlarda Ara", self)
+        arama_aksiyon.triggered.connect(self._arama_ac)
+        toolbar.addAction(arama_aksiyon)
+        
+        # Tema değiştir ve hakkında ikonları en sona
+        tema_icon = qta.icon('fa5s.adjust', color='purple')
+        self.tema_aksiyon = QAction(tema_icon, "Tema Değiştir", self)
+        self.tema_aksiyon.triggered.connect(self._tema_toggle)
+        toolbar.addAction(self.tema_aksiyon)      
 
+        info_icon = qta.icon('fa5s.info-circle', color='gray')
+        info_aksiyon = QAction(info_icon, "Hakkında", self)
+        info_aksiyon.triggered.connect(self._show_about)
+        toolbar.addAction(info_aksiyon)
+
+        # Ctrl+N kısayolu ile yeni not
+        yeni_shortcut = QAction(self)
+        yeni_shortcut.setShortcut('Ctrl+N')
+        yeni_shortcut.triggered.connect(self._yeni_not)
+        self.addAction(yeni_shortcut)
+
+        
     def _show_about(self):
         QMessageBox.information(self, "Speedy Notes Hakkında",
-            "Speedy Notes\n\nHızlı, modern ve sade not defteri uygulaması.\n\nSürüm: 1.0.0\nYazar: gilan\n© 2025")
+            "Speedy Notes\n\nHızlı, modern ve sade not defteri uygulaması.\n\nSürüm: 1.5.0\nYazar: Harun Hurma\n© 2025")
 
     def _yeni_not(self):
         # Otomatik başlık numaralandırma
