@@ -111,6 +111,9 @@ class NotDefteriGUI(QMainWindow):
         self.tabs.tabBar().installEventFilter(self.tabbar_filter)
         self._notlari_yukle()
         self._center_window()
+        self.tabs.setStyleSheet("""
+QTabBar::tab:selected { font-weight: bold; }
+""")
 
     def _setup_toolbar(self):
         toolbar = QToolBar()
