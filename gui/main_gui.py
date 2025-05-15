@@ -317,7 +317,7 @@ class NotDefteriGUI(QMainWindow):
         if widget:
             not_edit = widget.findChild(QTextEdit)
             if not_edit:
-                self.memory.update_note(idx, content=not_edit.toPlainText())
+                self.memory.update_note(idx, content=not_edit.toHtml())
 
     def _sekme_degisti(self, idx):
         self._sekme_widget_olustur(idx)
@@ -382,7 +382,7 @@ class NotDefteriGUI(QMainWindow):
         label.setStyleSheet("color: gray; font-size: 10pt;")
         layout.addWidget(label)
         not_edit = PlainTextEdit()
-        not_edit.setPlainText(note["content"])
+        not_edit.setHtml(note["content"])
         not_edit.textChanged.connect(self._not_guncelle)
         layout.addWidget(not_edit)
         self.tabs.currentChanged.disconnect(self._sekme_degisti)
@@ -417,8 +417,11 @@ class NotDefteriGUI(QMainWindow):
             if not kelime:
                 return
             for idx, note in enumerate(self.memory.notes):
-                if kelime in note["title"].lower() or kelime in note["content"].lower():
-                    ilk_satir = note["content"].split('\n', 1)[0][:50]
+                icerik_plain = QTextEdit()
+                icerik_plain.setHtml(note["content"])
+                plain = icerik_plain.toPlainText()
+                if kelime in note["title"].lower() or kelime in plain.lower():
+                    ilk_satir = plain.split('\n', 1)[0][:50]
                     item = QListWidgetItem(f"{note['title']} - {ilk_satir}")
                     item.setData(Qt.ItemDataRole.UserRole, idx)
                     sonuc_list.addItem(item)
