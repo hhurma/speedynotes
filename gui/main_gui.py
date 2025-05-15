@@ -90,7 +90,9 @@ class NotDefteriGUI(QMainWindow):
         self.setWindowIcon(QIcon("resources/speedy_notes_icon.svg"))
         self.tabs = QTabWidget()
         self.tabs.setTabsClosable(True)
+        self.tabs.setMovable(True)
         self.tabs.tabCloseRequested.connect(self._sekme_kapat_indeksli)
+        self.tabs.tabBar().tabMoved.connect(self._sekme_tasi)
         # + butonu
         self.plus_button = QToolButton()
         self.plus_button.setIcon(qta.icon('fa5s.plus', color='green'))
@@ -537,6 +539,18 @@ class NotDefteriGUI(QMainWindow):
         if widget:
             return widget.findChild(QTextEdit)
         return None
+
+    def _sekme_tasi(self, eski_idx, yeni_idx):
+        # Notların sırasını sekme sırasına göre güncelle
+        note = self.memory.notes.pop(eski_idx)
+        self.memory.notes.insert(yeni_idx, note)
+        # Widget'ları da güncelle (lazy loading için)
+        if hasattr(self, '_tab_widgets'):
+            widget = self._tab_widgets.pop(eski_idx, None)
+            if widget is not None:
+                # Yeni indexe ekle, diğer indexler kayabilir, yeniden oluşturulabilir
+                self._tab_widgets = { (yeni_idx if k == eski_idx else k): v for k, v in self._tab_widgets.items() }
+                self._tab_widgets[yeni_idx] = widget
 
 def main():
     app = QApplication(sys.argv)
