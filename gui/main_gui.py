@@ -6,6 +6,7 @@ import qtawesome as qta
 import time
 from helpers.note_memory_helper import NoteMemory
 from utils.logger import get_logger
+import json
 
 class PlainTextEdit(QTextEdit):
     def insertFromMimeData(self, source: QMimeData):
@@ -203,20 +204,24 @@ class NotDefteriGUI(QMainWindow):
         toolbar.addSeparator()
 
         # Undo
-        undo_icon = qta.icon('fa5s.undo', color='#607D8B')  # Gri
+        undo_icon = qta.icon('fa5s.undo', color='#43A047')  # Yeşil
         undo_action = QAction(undo_icon, "Geri Al (Ctrl+Z)", self)
         undo_action.setShortcut('Ctrl+Z')
         undo_action.triggered.connect(self._undo_text)
+        undo_action.setEnabled(False)
         toolbar.addAction(undo_action)
         self.addAction(undo_action)
+        self.undo_action = undo_action
 
         # Redo
         redo_icon = qta.icon('fa5s.redo', color='#43A047')  # Yeşil
         redo_action = QAction(redo_icon, "Yinele (Ctrl+Y)", self)
         redo_action.setShortcut('Ctrl+Y')
         redo_action.triggered.connect(self._redo_text)
+        redo_action.setEnabled(False)
         toolbar.addAction(redo_action)
         self.addAction(redo_action)
+        self.redo_action = redo_action
 
         # En sona separator ekle
         toolbar.addSeparator()
@@ -360,13 +365,23 @@ class NotDefteriGUI(QMainWindow):
     def _notlari_yukle(self):
         self.tabs.clear()
         self._tab_widgets = {}
+        last_index = 0
+        # Son açık sekme index'ini ayarlamak için ayarları oku
+        try:
+            with open('config/settings.json', 'r', encoding='utf-8') as f:
+                settings = json.load(f)
+                last_index = settings.get('last_tab_index', 0)
+        except Exception:
+            last_index = 0
         if self.memory.note_count() == 0:
             self._yeni_not()
         else:
             for i, note in enumerate(self.memory.notes):
                 self.tabs.addTab(QWidget(), note["title"])
-            self.tabs.setCurrentIndex(0)
-            self._sekme_widget_olustur(0)
+            if last_index >= self.tabs.count():
+                last_index = 0
+            self.tabs.setCurrentIndex(last_index)
+            self._sekme_widget_olustur(last_index)
 
     def _sekme_widget_olustur(self, idx):
         if idx in self._tab_widgets:
@@ -384,6 +399,10 @@ class NotDefteriGUI(QMainWindow):
         not_edit = PlainTextEdit()
         not_edit.setHtml(note["content"])
         not_edit.textChanged.connect(self._not_guncelle)
+        not_edit.undoAvailable.connect(self.undo_action.setEnabled)
+        not_edit.redoAvailable.connect(self.redo_action.setEnabled)
+        self.undo_action.setEnabled(not_edit.document().isUndoAvailable())
+        self.redo_action.setEnabled(not_edit.document().isRedoAvailable())
         layout.addWidget(not_edit)
         self.tabs.currentChanged.disconnect(self._sekme_degisti)
         self.tabs.removeTab(idx)
@@ -394,6 +413,15 @@ class NotDefteriGUI(QMainWindow):
 
     def closeEvent(self, event):
         self.memory.save_to_file(self.notes_path)
+        # Son açık sekme index'ini ayarlara kaydet
+        try:
+            with open('config/settings.json', 'r', encoding='utf-8') as f:
+                settings = json.load(f)
+        except Exception:
+            settings = {}
+        settings['last_tab_index'] = self.tabs.currentIndex()
+        with open('config/settings.json', 'w', encoding='utf-8') as f:
+            json.dump(settings, f, ensure_ascii=False, indent=2)
         self.logger.info("Notlar kaydedildi.")
         event.accept()
 
