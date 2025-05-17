@@ -1,12 +1,16 @@
 from PyQt6.QtWidgets import QApplication, QMainWindow, QTabWidget, QTextEdit, QVBoxLayout, QWidget, QInputDialog, QToolBar, QMessageBox, QLabel, QSplashScreen, QTabBar, QToolButton, QHBoxLayout, QDialog, QLineEdit, QListWidget, QListWidgetItem, QDialogButtonBox
 from PyQt6.QtGui import QIcon, QAction, QClipboard, QPixmap, QMouseEvent
 from PyQt6.QtCore import Qt, QSize, QMimeData, QObject, QEvent
+from PyQt6.QtPrintSupport import QPrinter
+from PyQt6.QtWidgets import QFileDialog
 import sys
 import qtawesome as qta
 import time
 from helpers.note_memory_helper import NoteMemory
 from utils.logger import get_logger
 import json
+from helpers.config_helper import get_data_dir
+import os
 
 class PlainTextEdit(QTextEdit):
     def insertFromMimeData(self, source: QMimeData):
@@ -103,7 +107,8 @@ class NotDefteriGUI(QMainWindow):
         self.memory = NoteMemory()
         self.tema = "aydinlik"
         self.logger = get_logger("NotDefteriGUI")
-        self.notes_path = "config/notes.json"
+        self.notes_path = os.path.join(get_data_dir(), 'notes.json')
+        self.settings_path = os.path.join(get_data_dir(), 'settings.json')
         self.memory.load_from_file(self.notes_path)
         self._setup_toolbar()
         self.tabs.currentChanged.connect(self._sekme_degisti)
@@ -254,7 +259,20 @@ QTabBar::tab:selected { font-weight: bold; }
         yeni_shortcut.triggered.connect(self._yeni_not)
         self.addAction(yeni_shortcut)
 
-        
+        # PDF'e Aktar
+        pdf_icon = qta.icon('fa5s.file-pdf', color='red')
+        pdf_action = QAction(pdf_icon, "Tüm Notları PDF'e Aktar", self)
+        pdf_action.triggered.connect(self._export_all_notes_pdf)
+        toolbar.addAction(pdf_action)
+        self.addAction(pdf_action)
+
+        # İçe Aktar
+        import_icon = qta.icon('fa5s.file-import', color='orange')
+        import_action = QAction(import_icon, "Notları İçe Aktar", self)
+        import_action.triggered.connect(self._import_notes)
+        toolbar.addAction(import_action)
+        self.addAction(import_action)
+
     def _show_about(self):
         QMessageBox.information(self, "Speedy Notes Hakkında",
             "Speedy Notes\n\nHızlı, modern ve sade not defteri uygulaması.\n\nSürüm: 1.5.0\nYazar: Harun Hurma\n© 2025")
@@ -271,18 +289,31 @@ QTabBar::tab:selected { font-weight: bold; }
         while yeni_num in mevcut_numaralar:
             yeni_num += 1
         yeni_baslik = f"Yeni Not {yeni_num}"
-        widget = QWidget()
-        layout = QVBoxLayout(widget)
-        now = self.memory.get_note(self.memory.add_note(title=yeni_baslik, content=""))["datetime"]
-        label = QLabel(f"Oluşturulma: {now}")
-        label.setStyleSheet("color: gray; font-size: 10pt;")
-        layout.addWidget(label)
-        not_edit = PlainTextEdit()
-        not_edit.textChanged.connect(self._not_guncelle)
-        layout.addWidget(not_edit)
-        idx = self.tabs.addTab(widget, yeni_baslik)
-        self.tabs.setCurrentIndex(idx)
-        self.logger.info(f"Yeni not eklendi: Not {idx+1}")
+
+        # 1. Notu belleğe ekle
+        yeni_not_bellek_idx = self.memory.add_note(title=yeni_baslik, content="")
+        simdi = self.memory.get_note(yeni_not_bellek_idx)["datetime"]
+
+        # 2. Sekme için widget ve içeriğini oluştur
+        widget_icin_sekme = QWidget()
+        layout = QVBoxLayout(widget_icin_sekme)
+        etiket = QLabel(f"Oluşturulma: {simdi}")
+        etiket.setStyleSheet("color: gray; font-size: 10pt;")
+        layout.addWidget(etiket)
+        not_duzenle = PlainTextEdit()
+        not_duzenle.textChanged.connect(self._not_guncelle)
+        layout.addWidget(not_duzenle)
+
+        # 3. Widget'ı QTabWidget'a ekle
+        gercek_sekme_idx = self.tabs.addTab(widget_icin_sekme, yeni_baslik)
+
+        # 4. KRİTİK: Oluşturulan widget'ı _tab_widgets sözlüğüne kaydet
+        # Bu, _sekme_widget_olustur'un widget'ı bulmasını ve yeniden oluşturmamasını sağlar.
+        self._tab_widgets[gercek_sekme_idx] = widget_icin_sekme
+
+        # 5. Yeni sekmeyi aktif yap (bu _sekme_degisti -> _sekme_widget_olustur tetikler)
+        self.tabs.setCurrentIndex(gercek_sekme_idx)
+        self.logger.info(f"Yeni not eklendi: {yeni_baslik} (İndeks: {gercek_sekme_idx})")
 
     def _sekme_kapat_indeksli(self, idx):
         baslik = self.tabs.tabText(idx)
@@ -328,6 +359,7 @@ QTabBar::tab:selected { font-weight: bold; }
             not_edit = widget.findChild(QTextEdit)
             if not_edit:
                 self.memory.update_note(idx, content=not_edit.toHtml())
+                self._otomatik_kaydet()
 
     def _sekme_degisti(self, idx):
         self._sekme_widget_olustur(idx)
@@ -342,6 +374,7 @@ QTabBar::tab:selected { font-weight: bold; }
         if ok and yeni_baslik.strip():
             self.tabs.setTabText(idx, yeni_baslik.strip())
             self.memory.update_note(idx, title=yeni_baslik.strip())
+            self._otomatik_kaydet()
             self.logger.info(f"Sekme başlığı değiştirildi: {yeni_baslik.strip()}")
 
     def _tema_toggle(self):
@@ -373,7 +406,7 @@ QTabBar::tab:selected { font-weight: bold; }
         last_index = 0
         # Son açık sekme index'ini ayarlamak için ayarları oku
         try:
-            with open('config/settings.json', 'r', encoding='utf-8') as f:
+            with open(self.settings_path, 'r', encoding='utf-8') as f:
                 settings = json.load(f)
                 last_index = settings.get('last_tab_index', 0)
         except Exception:
@@ -381,19 +414,17 @@ QTabBar::tab:selected { font-weight: bold; }
         if self.memory.note_count() == 0:
             self._yeni_not()
         else:
-            for i, note in enumerate(self.memory.notes):
-                self.tabs.addTab(QWidget(), note["title"])
+            for i in range(self.memory.note_count()):
+                self._sekme_widget_olustur(i)
             if last_index >= self.tabs.count():
                 last_index = 0
             self.tabs.setCurrentIndex(last_index)
-            self._sekme_widget_olustur(last_index)
 
     def _sekme_widget_olustur(self, idx):
         if idx in self._tab_widgets:
             self.tabs.setTabText(idx, self.memory.get_note(idx)["title"])
             self.tabs.setTabToolTip(idx, self.memory.get_note(idx)["title"])
             self.tabs.setTabEnabled(idx, True)
-            self.tabs.setCurrentIndex(idx)
             return
         note = self.memory.get_note(idx)
         widget = QWidget()
@@ -410,22 +441,19 @@ QTabBar::tab:selected { font-weight: bold; }
         self.redo_action.setEnabled(not_edit.document().isRedoAvailable())
         layout.addWidget(not_edit)
         self.tabs.currentChanged.disconnect(self._sekme_degisti)
-        self.tabs.removeTab(idx)
         self.tabs.insertTab(idx, widget, note["title"])
-        self.tabs.setCurrentIndex(idx)
         self.tabs.currentChanged.connect(self._sekme_degisti)
         self._tab_widgets[idx] = widget
 
     def closeEvent(self, event):
         self.memory.save_to_file(self.notes_path)
-        # Son açık sekme index'ini ayarlara kaydet
         try:
-            with open('config/settings.json', 'r', encoding='utf-8') as f:
+            with open(self.settings_path, 'r', encoding='utf-8') as f:
                 settings = json.load(f)
         except Exception:
             settings = {}
         settings['last_tab_index'] = self.tabs.currentIndex()
-        with open('config/settings.json', 'w', encoding='utf-8') as f:
+        with open(self.settings_path, 'w', encoding='utf-8') as f:
             json.dump(settings, f, ensure_ascii=False, indent=2)
         self.logger.info("Notlar kaydedildi.")
         event.accept()
@@ -544,16 +572,116 @@ QTabBar::tab:selected { font-weight: bold; }
         return None
 
     def _sekme_tasi(self, eski_idx, yeni_idx):
-        # Notların sırasını sekme sırasına göre güncelle
-        note = self.memory.notes.pop(eski_idx)
-        self.memory.notes.insert(yeni_idx, note)
-        # Widget'ları da güncelle (lazy loading için)
-        if hasattr(self, '_tab_widgets'):
-            widget = self._tab_widgets.pop(eski_idx, None)
-            if widget is not None:
-                # Yeni indexe ekle, diğer indexler kayabilir, yeniden oluşturulabilir
-                self._tab_widgets = { (yeni_idx if k == eski_idx else k): v for k, v in self._tab_widgets.items() }
-                self._tab_widgets[yeni_idx] = widget
+        self.logger.info(f"Sekme taşıma isteği: {eski_idx} -> {yeni_idx}. Mevcut not sayısı: {self.memory.note_count()}, Sekme sayısı: {self.tabs.count()}")
+
+        # Qt tarafından sağlanan indekslerin geçerliliğini QTabWidget sayısına göre kontrol et
+        if not (0 <= eski_idx < self.tabs.count() and 0 <= yeni_idx < self.tabs.count()):
+            self.logger.error(f"Qt tarafından sağlanan geçersiz sekme indeksleri: eski_idx={eski_idx}, yeni_idx={yeni_idx}, sekme_sayısı={self.tabs.count()}")
+            return
+
+        # Bellekteki not sayısı ile sekme sayısı arasında senkronizasyon kontrolü
+        if self.memory.note_count() != self.tabs.count():
+            self.logger.error(f"Senkronizasyon hatası: Not sayısı ({self.memory.note_count()}) != Sekme sayısı ({self.tabs.count()}). Taşıma işlemi iptal edildi.")
+            # İdeal olarak burada bir yeniden senkronizasyon mekanizması olabilir veya kullanıcıya bildirim gösterilebilir.
+            # Şimdilik, çökmemesi için işlemi iptal ediyoruz.
+            return
+
+        current_note_count = self.memory.note_count() # Bu noktada self.tabs.count() ile aynı olmalı
+
+        # 1. self.memory.notes listesini yeniden sırala
+        try:
+            note_to_move = self.memory.notes.pop(eski_idx)
+            self.memory.notes.insert(yeni_idx, note_to_move)
+        except IndexError:
+            # Yukarıdaki senkronizasyon kontrolü bu hatayı önlemeli.
+            self.logger.exception(f"self.memory.notes üzerinde pop/insert sırasında beklenmedik Index Hatası: eski_idx={eski_idx}, yeni_idx={yeni_idx}, not sayısı={current_note_count}")
+            return
+
+        # 2. _tab_widgets sözlüğünü self.memory.notes'un yeni sırasına uyacak şekilde yeniden sırala
+        if hasattr(self, '_tab_widgets') and self._tab_widgets:
+            if current_note_count > 0:
+                # Eski sıraya göre widget'ların bir listesini oluştur
+                widgets_in_old_order = [self._tab_widgets.get(i) for i in range(current_note_count)]
+
+                try:
+                    moved_widget_item = widgets_in_old_order.pop(eski_idx)
+                    widgets_in_old_order.insert(yeni_idx, moved_widget_item) # widgets_in_old_order şimdi YENİ sırada
+                except IndexError:
+                    self.logger.exception(f"_tab_widgets için widget listesi yeniden sıralanırken Index Hatası: eski_idx={eski_idx}, yeni_idx={yeni_idx}")
+                    self._tab_widgets.clear() # Kritik hata, _tab_widgets temizlenerek "kopya" sorunları önlenmeye çalışılır.
+                    self.logger.warning("_tab_widgets temizlendi çünkü yeniden sıralama sırasında hata oluştu.")
+                else:
+                    self._tab_widgets.clear()
+                    for i, widget in enumerate(widgets_in_old_order):
+                        if widget is not None:
+                            self._tab_widgets[i] = widget
+            else: # Not/sekme yoksa _tab_widgets boş olmalı
+                self._tab_widgets.clear()
+        
+        # 3. Değişiklikleri kaydet (yeni sıra ve potansiyel olarak değişen aktif sekme)
+        self._otomatik_kaydet()
+        
+        self.logger.info(f"Sekme başarıyla taşındı: {eski_idx} -> {yeni_idx}. Yeni not sırası ve ayarlar kaydedildi.")
+
+    def _export_all_notes_pdf(self):
+        path, _ = QFileDialog.getSaveFileName(self, "PDF Olarak Kaydet", "tum_notlar.pdf", "PDF Dosyası (*.pdf)")
+        if not path:
+            return
+        printer = QPrinter()
+        printer.setOutputFormat(QPrinter.OutputFormat.PdfFormat)
+        printer.setOutputFileName(path)
+        from PyQt6.QtGui import QTextDocument
+        doc = QTextDocument()
+        html = ""
+        for note in self.memory.notes:
+            html += f"<h2>{note['title']}</h2>"
+            html += note['content']
+            html += "<hr>"
+        doc.setHtml(html)
+        doc.print(printer)
+        QMessageBox.information(self, "PDF'e Aktarıldı", f"Tüm notlar PDF olarak kaydedildi:\n{path}")
+
+    def _import_notes(self):
+        path, _ = QFileDialog.getOpenFileName(self, "Notları İçe Aktar", "", "JSON Dosyası (*.json)")
+        if not path:
+            return
+        yanit = QMessageBox.question(
+            self,
+            "Notları İçe Aktar",
+            "Bu işlem mevcut tüm notları silecek ve sadece içe aktardığınız notlar kalacak. Devam etmek istiyor musunuz?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+        )
+        if yanit != QMessageBox.StandardButton.Yes:
+            return
+        try:
+            with open(path, 'r', encoding='utf-8') as f:
+                imported_notes = json.load(f)
+            if isinstance(imported_notes, list):
+                self.memory.notes = imported_notes
+                self.memory.save_to_file(self.notes_path)
+                self._notlari_yukle()
+                QMessageBox.information(self, "İçe Aktarıldı", f"{len(imported_notes)} not başarıyla içe aktarıldı. Mevcut notlar silindi.")
+            else:
+                QMessageBox.warning(self, "Hata", "Seçilen dosya geçerli bir not listesi içermiyor.")
+        except Exception as e:
+            QMessageBox.warning(self, "Hata", f"İçe aktarma sırasında hata oluştu:\n{e}")
+
+    def _otomatik_kaydet(self):
+        self.memory.save_to_file(self.notes_path)
+        self.logger.info("Değişiklikler otomatik kaydedildi.")
+        # Son aktif sekmeyi de kaydet
+        try:
+            with open(self.settings_path, 'r', encoding='utf-8') as f:
+                settings = json.load(f)
+        except Exception:
+            settings = {}
+        settings['last_tab_index'] = self.tabs.currentIndex()
+        try:
+            with open(self.settings_path, 'w', encoding='utf-8') as f:
+                json.dump(settings, f, ensure_ascii=False, indent=2)
+            self.logger.info(f"Ayarlar kaydedildi, son aktif sekme: {self.tabs.currentIndex()}")
+        except Exception as e:
+            self.logger.error(f"Ayarlar kaydedilemedi: {e}")
 
 def main():
     app = QApplication(sys.argv)
