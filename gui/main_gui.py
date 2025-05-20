@@ -1,4 +1,4 @@
-from PyQt6.QtWidgets import QApplication, QMainWindow, QTabWidget, QTextEdit, QVBoxLayout, QWidget, QInputDialog, QToolBar, QMessageBox, QLabel, QSplashScreen, QTabBar, QToolButton, QHBoxLayout, QDialog, QLineEdit, QListWidget, QListWidgetItem, QDialogButtonBox
+from PyQt6.QtWidgets import QApplication, QMainWindow, QTabWidget, QTextEdit, QVBoxLayout, QWidget, QInputDialog, QToolBar, QMessageBox, QLabel, QSplashScreen, QTabBar, QToolButton, QHBoxLayout, QDialog, QLineEdit, QListWidget, QListWidgetItem, QDialogButtonBox, QPushButton
 from PyQt6.QtGui import QIcon, QAction, QClipboard, QPixmap, QMouseEvent
 from PyQt6.QtCore import Qt, QSize, QMimeData, QObject, QEvent
 from PyQt6.QtPrintSupport import QPrinter
@@ -11,6 +11,7 @@ from utils.logger import get_logger
 import json
 from helpers.config_helper import get_data_dir
 import os
+from helpers.translate_helper import gemini_translate, is_text_turkish
 
 class PlainTextEdit(QTextEdit):
     def insertFromMimeData(self, source: QMimeData):
@@ -18,6 +19,41 @@ class PlainTextEdit(QTextEdit):
             self.insertPlainText(source.text())
         else:
             super().insertFromMimeData(source)
+
+    def contextMenuEvent(self, event):
+        menu = self.createStandardContextMenu()
+        cursor = self.textCursor()
+        if cursor.hasSelection():
+            cevir_action = QAction('Çevir', self)
+            cevir_action.triggered.connect(self._cevir_secili_metni)
+            menu.addAction(cevir_action)
+        menu.exec(event.globalPos())
+
+    def _cevir_secili_metni(self):
+        cursor = self.textCursor()
+        if cursor.hasSelection():
+            secili = cursor.selectedText()
+            try:
+                hedef_dil = 'en' if is_text_turkish(secili) else 'tr'
+                ceviri = gemini_translate(secili, hedef_dil)
+            except Exception as e:
+                ceviri = f"Çeviri hatası: {e}"
+            # Sonucu bir pencere içinde göster
+            dialog = QDialog(self)
+            dialog.setWindowTitle("Çeviri Sonucu")
+            layout = QVBoxLayout(dialog)
+            ceviri_label = QLabel(ceviri)
+            ceviri_label.setWordWrap(True)
+            layout.addWidget(ceviri_label)
+            btn_layout = QHBoxLayout()
+            kopyala_btn = QPushButton("Panoya Kopyala")
+            kopyala_btn.clicked.connect(lambda: QApplication.clipboard().setText(ceviri))
+            btn_layout.addWidget(kopyala_btn)
+            kapat_btn = QPushButton("Kapat")
+            kapat_btn.clicked.connect(dialog.accept)
+            btn_layout.addWidget(kapat_btn)
+            layout.addLayout(btn_layout)
+            dialog.exec()
 
 class TabBarDoubleClickFilter(QObject):
     def __init__(self, parent, callback):
