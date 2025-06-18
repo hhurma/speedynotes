@@ -1,0 +1,15 @@
+Bu bir test text dosyasıdır.
+
+Speedy Notes uygulamasının .txt dosyalarını açma özelliğini test ediyoruz.
+
+Özellikler:
+- Python (.py) dosyalarını açabilir
+- Text (.txt) dosyalarını açabilir  
+- Dosyaları düzenleyebilir
+- Dosyaları kaydedebilir
+- Klavye kısayolları:
+  * Ctrl+O - Dosya aç
+  * Ctrl+S - Dosya kaydet
+  * Ctrl+N - Yeni not
+
+Bu dosya başarıyla açılırsa, özellik çalışıyor demektir!

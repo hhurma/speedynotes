@@ -4,14 +4,32 @@ from PyQt6.QtCore import Qt, QSize, QMimeData, QObject, QEvent
 from PyQt6.QtPrintSupport import QPrinter
 from PyQt6.QtWidgets import QFileDialog
 import sys
+import os
 import qtawesome as qta
 import time
+import json
+
+# Ana proje dizinini Python path'ine ekle
+current_dir = os.path.dirname(os.path.abspath(__file__))
+parent_dir = os.path.dirname(current_dir)
+if parent_dir not in sys.path:
+    sys.path.insert(0, parent_dir)
+
 from helpers.note_memory_helper import NoteMemory
 from utils.logger import get_logger
-import json
 from helpers.config_helper import get_data_dir
-import os
 from helpers.translate_helper import gemini_translate, is_text_turkish
+
+# Highlighter'ları import et
+try:
+    from .python_highlighter import PythonSyntaxHighlighter
+    from .html_highlighter import HtmlSyntaxHighlighter
+    from .css_highlighter import CssSyntaxHighlighter
+except ImportError:
+    # Eğer relative import çalışmazsa absolute import dene
+    from python_highlighter import PythonSyntaxHighlighter
+    from html_highlighter import HtmlSyntaxHighlighter
+    from css_highlighter import CssSyntaxHighlighter
 
 class PlainTextEdit(QTextEdit):
     def insertFromMimeData(self, source: QMimeData):
@@ -167,6 +185,20 @@ QTabBar::tab:selected { font-weight: bold; }
         yeni_aksiyon = QAction(yeni_icon, "Yeni Not", self)
         yeni_aksiyon.triggered.connect(self._yeni_not)
         toolbar.addAction(yeni_aksiyon)
+        
+        toolbar.addSeparator()        # Dosya Aç (.py, .txt, .html, .css)
+        open_file_icon = qta.icon('fa5s.folder-open', color='blue')
+        open_file_action = QAction(open_file_icon, "Dosya Aç (.py, .txt, .html, .css)", self)
+        open_file_action.triggered.connect(self._open_file)
+        toolbar.addAction(open_file_action)
+        self.addAction(open_file_action)
+
+        # Dosyayı Kaydet
+        save_file_icon = qta.icon('fa5s.save', color='green')
+        save_file_action = QAction(save_file_icon, "Dosyayı Kaydet", self)
+        save_file_action.triggered.connect(self._save_current_file)
+        toolbar.addAction(save_file_action)
+        self.addAction(save_file_action)
 
         sil_icon = qta.icon('fa5s.trash', color='orange')
         sil_aksiyon = QAction(sil_icon, "Notu Sil", self)
@@ -174,9 +206,9 @@ QTabBar::tab:selected { font-weight: bold; }
         toolbar.addAction(sil_aksiyon)
 
         kopyala_icon = qta.icon('fa5s.copy', color='blue')
-        kopyala_aksiyon = QAction(kopyala_icon, "Notu Kopyala", self)
-        kopyala_aksiyon.triggered.connect(self._notu_kopyala)
-        toolbar.addAction(kopyala_aksiyon)
+        kopyla_aksiyon = QAction(kopyala_icon, "Notu Kopyala", self)
+        kopyla_aksiyon.triggered.connect(self._notu_kopyala)
+        toolbar.addAction(kopyla_aksiyon)
         
         toolbar.addSeparator()
 
@@ -287,13 +319,23 @@ QTabBar::tab:selected { font-weight: bold; }
         info_icon = qta.icon('fa5s.info-circle', color='gray')
         info_aksiyon = QAction(info_icon, "Hakkında", self)
         info_aksiyon.triggered.connect(self._show_about)
-        toolbar.addAction(info_aksiyon)
-
-        # Ctrl+N kısayolu ile yeni not
+        toolbar.addAction(info_aksiyon)        # Ctrl+N kısayolu ile yeni not
         yeni_shortcut = QAction(self)
         yeni_shortcut.setShortcut('Ctrl+N')
         yeni_shortcut.triggered.connect(self._yeni_not)
         self.addAction(yeni_shortcut)
+
+        # Ctrl+O kısayolu ile dosya aç
+        open_shortcut = QAction(self)
+        open_shortcut.setShortcut('Ctrl+O')
+        open_shortcut.triggered.connect(self._open_file)
+        self.addAction(open_shortcut)
+
+        # Ctrl+S kısayolu ile dosya kaydet
+        save_shortcut = QAction(self)
+        save_shortcut.setShortcut('Ctrl+S')
+        save_shortcut.triggered.connect(self._save_current_file)
+        self.addAction(save_shortcut)
 
         # PDF'e Aktar
         pdf_icon = qta.icon('fa5s.file-pdf', color='red')
@@ -308,6 +350,8 @@ QTabBar::tab:selected { font-weight: bold; }
         import_action.triggered.connect(self._import_notes)
         toolbar.addAction(import_action)
         self.addAction(import_action)
+
+        
 
     def _show_about(self):
         QMessageBox.information(self, "Speedy Notes Hakkında",
@@ -361,6 +405,11 @@ QTabBar::tab:selected { font-weight: bold; }
         )
         if yanit != QMessageBox.StandardButton.Yes:
             return
+        
+        # Dosya yolu varsa temizle
+        if hasattr(self, '_file_paths') and idx in self._file_paths:
+            del self._file_paths[idx]
+        
         if self.tabs.count() == 1:
             self.tabs.removeTab(idx)
             self.memory.remove_note(idx)
@@ -370,6 +419,16 @@ QTabBar::tab:selected { font-weight: bold; }
             self.tabs.removeTab(idx)
             self.memory.remove_note(idx)
             self.logger.info(f"Sekme kapatıldı: Not {idx+1}")
+            
+            # Dosya yolu indekslerini güncelle
+            if hasattr(self, '_file_paths'):
+                updated_paths = {}
+                for old_idx, path in self._file_paths.items():
+                    if old_idx > idx:
+                        updated_paths[old_idx - 1] = path
+                    elif old_idx < idx:
+                        updated_paths[old_idx] = path
+                self._file_paths = updated_paths
 
     def _notu_sil(self):
         idx = self.tabs.currentIndex()
@@ -440,13 +499,21 @@ QTabBar::tab:selected { font-weight: bold; }
         self.tabs.clear()
         self._tab_widgets = {}
         last_index = 0
-        # Son açık sekme index'ini ayarlamak için ayarları oku
+        
+        # Son açık sekme index'ini ve dosya yollarını ayarlamak için ayarları oku
         try:
             with open(self.settings_path, 'r', encoding='utf-8') as f:
                 settings = json.load(f)
                 last_index = settings.get('last_tab_index', 0)
+                # Dosya yollarını geri yükle
+                if 'file_paths' in settings:
+                    self._file_paths = {int(k): v for k, v in settings['file_paths'].items()}
+                else:
+                    self._file_paths = {}
         except Exception:
             last_index = 0
+            self._file_paths = {}
+            
         if self.memory.note_count() == 0:
             self._yeni_not()
         else:
@@ -465,16 +532,36 @@ QTabBar::tab:selected { font-weight: bold; }
         note = self.memory.get_note(idx)
         widget = QWidget()
         layout = QVBoxLayout(widget)
-        label = QLabel(f"Oluşturulma: {note['datetime']}")
+        
+        # Eğer bu sekme bir dosya ise, dosya yolu bilgisini göster
+        if hasattr(self, '_file_paths') and idx in self._file_paths:
+            file_path = self._file_paths[idx]
+            label = QLabel(f"Dosya: {file_path}")
+        else:
+            label = QLabel(f"Oluşturulma: {note['datetime']}")
         label.setStyleSheet("color: gray; font-size: 10pt;")
         layout.addWidget(label)
+        
         not_edit = PlainTextEdit()
         not_edit.setHtml(note["content"])
         not_edit.textChanged.connect(self._not_guncelle)
         not_edit.undoAvailable.connect(self.undo_action.setEnabled)
         not_edit.redoAvailable.connect(self.redo_action.setEnabled)
         self.undo_action.setEnabled(not_edit.document().isUndoAvailable())
-        self.redo_action.setEnabled(not_edit.document().isRedoAvailable())
+        self.redo_action.setEnabled(not_edit.document().isRedoAvailable())        # Dosya tipine göre syntax highlighting ekle
+        if (hasattr(self, '_file_paths') and idx in self._file_paths):
+            file_path = self._file_paths[idx]
+            file_ext = file_path.lower()
+            if file_ext.endswith('.py'):
+                highlighter = PythonSyntaxHighlighter(not_edit.document())
+                not_edit.highlighter = highlighter
+            elif file_ext.endswith(('.html', '.htm')):
+                highlighter = HtmlSyntaxHighlighter(not_edit.document())
+                not_edit.highlighter = highlighter
+            elif file_ext.endswith('.css'):
+                highlighter = CssSyntaxHighlighter(not_edit.document())
+                not_edit.highlighter = highlighter
+        
         layout.addWidget(not_edit)
         self.tabs.currentChanged.disconnect(self._sekme_degisti)
         self.tabs.insertTab(idx, widget, note["title"])
@@ -489,6 +576,13 @@ QTabBar::tab:selected { font-weight: bold; }
         except Exception:
             settings = {}
         settings['last_tab_index'] = self.tabs.currentIndex()
+        
+        # Dosya yollarını kaydet
+        if hasattr(self, '_file_paths'):
+            settings['file_paths'] = self._file_paths
+        else:
+            settings['file_paths'] = {}
+            
         with open(self.settings_path, 'w', encoding='utf-8') as f:
             json.dump(settings, f, ensure_ascii=False, indent=2)
         self.logger.info("Notlar kaydedildi.")
@@ -631,9 +725,7 @@ QTabBar::tab:selected { font-weight: bold; }
         except IndexError:
             # Yukarıdaki senkronizasyon kontrolü bu hatayı önlemeli.
             self.logger.exception(f"self.memory.notes üzerinde pop/insert sırasında beklenmedik Index Hatası: eski_idx={eski_idx}, yeni_idx={yeni_idx}, not sayısı={current_note_count}")
-            return
-
-        # 2. _tab_widgets sözlüğünü self.memory.notes'un yeni sırasına uyacak şekilde yeniden sırala
+            return        # 2. _tab_widgets sözlüğünü self.memory.notes'un yeni sırasına uyacak şekilde yeniden sırala
         if hasattr(self, '_tab_widgets') and self._tab_widgets:
             if current_note_count > 0:
                 # Eski sıraya göre widget'ların bir listesini oluştur
@@ -653,6 +745,20 @@ QTabBar::tab:selected { font-weight: bold; }
                             self._tab_widgets[i] = widget
             else: # Not/sekme yoksa _tab_widgets boş olmalı
                 self._tab_widgets.clear()
+        
+        # Dosya yollarını da taşı
+        if hasattr(self, '_file_paths') and self._file_paths:
+            updated_paths = {}
+            for idx, path in self._file_paths.items():
+                if idx == eski_idx:
+                    updated_paths[yeni_idx] = path
+                elif eski_idx < yeni_idx and eski_idx < idx <= yeni_idx:
+                    updated_paths[idx - 1] = path
+                elif yeni_idx < eski_idx and yeni_idx <= idx < eski_idx:
+                    updated_paths[idx + 1] = path
+                else:
+                    updated_paths[idx] = path
+            self._file_paths = updated_paths
         
         # 3. Değişiklikleri kaydet (yeni sıra ve potansiyel olarak değişen aktif sekme)
         self._otomatik_kaydet()
@@ -684,7 +790,7 @@ QTabBar::tab:selected { font-weight: bold; }
         yanit = QMessageBox.question(
             self,
             "Notları İçe Aktar",
-            "Bu işlem mevcut tüm notları silecek ve sadece içe aktardığınız notlar kalacak. Devam etmek istiyor musunuz?",
+            "Bu işlem mevcut tüm notları silecek ve sadece içe aktardığınız notları kalacak. Devam etmek istiyor musunuz?",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
         )
         if yanit != QMessageBox.StandardButton.Yes:
@@ -702,6 +808,141 @@ QTabBar::tab:selected { font-weight: bold; }
         except Exception as e:
             QMessageBox.warning(self, "Hata", f"İçe aktarma sırasında hata oluştu:\n{e}")
 
+    def _open_file(self):
+        """Python, Text, HTML ve CSS dosyalarını açar ve yeni bir sekme olarak ekler"""
+        path, _ = QFileDialog.getOpenFileName(
+            self, 
+            "Dosya Aç", 
+            "", 
+            "Web/Code Dosyaları (*.py *.txt *.html *.htm *.css);;Python Dosyaları (*.py);;HTML Dosyaları (*.html *.htm);;CSS Dosyaları (*.css);;Text Dosyaları (*.txt);;Tüm Dosyalar (*)"
+        )
+        if not path:
+            return
+        
+        try:
+            with open(path, 'r', encoding='utf-8') as f:
+                content = f.read()
+            
+            # Dosya adını başlık olarak kullan
+            file_name = os.path.basename(path)
+            
+            # Aynı dosya zaten açık mı kontrol et
+            for i in range(self.tabs.count()):
+                if self.tabs.tabText(i) == file_name:
+                    self.tabs.setCurrentIndex(i)
+                    QMessageBox.information(self, "Dosya Zaten Açık", f"'{file_name}' dosyası zaten açık.")
+                    return
+            
+            # Yeni not olarak ekle
+            yeni_not_bellek_idx = self.memory.add_note(title=file_name, content=content)
+            
+            # Sekme widget'ı oluştur
+            widget_icin_sekme = QWidget()
+            layout = QVBoxLayout(widget_icin_sekme)
+              # Dosya yolu bilgisini göster
+            etiket = QLabel(f"Dosya: {path}")
+            etiket.setStyleSheet("color: gray; font-size: 10pt;")
+            layout.addWidget(etiket)
+            
+            not_duzenle = PlainTextEdit()
+            not_duzenle.setPlainText(content)  # HTML yerine plain text kullan
+            not_duzenle.textChanged.connect(self._not_guncelle)            # Dosya tipine göre syntax highlighting ekle
+            file_ext = path.lower()
+            if file_ext.endswith('.py'):
+                highlighter = PythonSyntaxHighlighter(not_duzenle.document())
+                not_duzenle.highlighter = highlighter
+            elif file_ext.endswith(('.html', '.htm')):
+                highlighter = HtmlSyntaxHighlighter(not_duzenle.document())
+                not_duzenle.highlighter = highlighter
+            elif file_ext.endswith('.css'):
+                highlighter = CssSyntaxHighlighter(not_duzenle.document())
+                not_duzenle.highlighter = highlighter
+            
+            layout.addWidget(not_duzenle)
+            
+            # Sekmeyi ekle
+            gercek_sekme_idx = self.tabs.addTab(widget_icin_sekme, file_name)
+            self._tab_widgets[gercek_sekme_idx] = widget_icin_sekme
+            
+            # Dosya yolunu sekme ile ilişkilendir (kaydetme için)
+            if not hasattr(self, '_file_paths'):
+                self._file_paths = {}
+            self._file_paths[gercek_sekme_idx] = path
+            
+            # Yeni sekmeyi aktif yap
+            self.tabs.setCurrentIndex(gercek_sekme_idx)
+            
+            self.logger.info(f"Dosya açıldı: {path}")
+            QMessageBox.information(self, "Dosya Açıldı", f"'{file_name}' başarıyla açıldı.")
+            
+        except Exception as e:
+            QMessageBox.warning(self, "Hata", f"Dosya açılırken hata oluştu:\n{e}")
+            self.logger.error(f"Dosya açma hatası: {e}")
+
+    def _save_current_file(self):
+        """Mevcut sekmedeki içeriği dosyaya kaydet"""
+        current_idx = self.tabs.currentIndex()
+        if current_idx < 0:
+            return
+        
+        widget = self.tabs.currentWidget()
+        if not widget:
+            return
+        
+        not_edit = widget.findChild(QTextEdit)
+        if not not_edit:
+            return
+        
+        content = not_edit.toPlainText()
+        
+        # Eğer bu sekme bir dosyadan açılmışsa, aynı dosyaya kaydet
+        if hasattr(self, '_file_paths') and current_idx in self._file_paths:
+            file_path = self._file_paths[current_idx]
+            try:
+                with open(file_path, 'w', encoding='utf-8') as f:
+                    f.write(content)
+                QMessageBox.information(self, "Kaydedildi", f"Dosya kaydedildi: {file_path}")
+                self.logger.info(f"Dosya kaydedildi: {file_path}")
+            except Exception as e:
+                QMessageBox.warning(self, "Hata", f"Dosya kaydedilirken hata oluştu:\n{e}")
+                self.logger.error(f"Dosya kaydetme hatası: {e}")
+        else:
+            # Yeni dosya olarak kaydet
+            path, _ = QFileDialog.getSaveFileName(
+                self, 
+                "Dosyayı Kaydet", 
+                "", 
+                "Python Dosyası (*.py);;HTML Dosyası (*.html);;CSS Dosyası (*.css);;Text Dosyası (*.txt);;Tüm Dosyalar (*)"
+            )
+            if path:
+                try:
+                    with open(path, 'w', encoding='utf-8') as f:
+                        f.write(content)
+                    
+                    # Dosya yolunu kaydet
+                    if not hasattr(self, '_file_paths'):
+                        self._file_paths = {}
+                    self._file_paths[current_idx] = path
+                      # Sekme başlığını güncelle
+                    file_name = os.path.basename(path)
+                    self.tabs.setTabText(current_idx, file_name)                    # Dosya tipine göre syntax highlighting ekle
+                    file_ext = path.lower()
+                    if file_ext.endswith('.py') and not hasattr(not_edit, 'highlighter'):
+                        highlighter = PythonSyntaxHighlighter(not_edit.document())
+                        not_edit.highlighter = highlighter
+                    elif file_ext.endswith(('.html', '.htm')) and not hasattr(not_edit, 'highlighter'):
+                        highlighter = HtmlSyntaxHighlighter(not_edit.document())
+                        not_edit.highlighter = highlighter
+                    elif file_ext.endswith('.css') and not hasattr(not_edit, 'highlighter'):
+                        highlighter = CssSyntaxHighlighter(not_edit.document())
+                        not_edit.highlighter = highlighter
+                    
+                    QMessageBox.information(self, "Kaydedildi", f"Dosya kaydedildi: {path}")
+                    self.logger.info(f"Yeni dosya kaydedildi: {path}")
+                except Exception as e:
+                    QMessageBox.warning(self, "Hata", f"Dosya kaydedilirken hata oluştu:\n{e}")
+                    self.logger.error(f"Dosya kaydetme hatası: {e}")
+
     def _otomatik_kaydet(self):
         self.memory.save_to_file(self.notes_path)
         self.logger.info("Değişiklikler otomatik kaydedildi.")
@@ -712,6 +953,13 @@ QTabBar::tab:selected { font-weight: bold; }
         except Exception:
             settings = {}
         settings['last_tab_index'] = self.tabs.currentIndex()
+        
+        # Dosya yollarını kaydet
+        if hasattr(self, '_file_paths'):
+            settings['file_paths'] = self._file_paths
+        else:
+            settings['file_paths'] = {}
+            
         try:
             with open(self.settings_path, 'w', encoding='utf-8') as f:
                 json.dump(settings, f, ensure_ascii=False, indent=2)
@@ -723,4 +971,4 @@ def main():
     app = QApplication(sys.argv)
     pencere = NotDefteriGUI()
     pencere.show()
-    sys.exit(app.exec()) 
+    sys.exit(app.exec())

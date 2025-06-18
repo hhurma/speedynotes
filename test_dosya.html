@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Syntax Highlighting Test</title>
+    
+    <!-- CSS Stilleri -->
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #f5f5f5;
+            margin: 0;
+            padding: 20px;
+            line-height: 1.6;
+        }
+        
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        
+        h1 {
+            color: #333;
+            text-align: center;
+            font-size: 2.5em;
+            margin-bottom: 30px;
+        }
+        
+        .highlight {
+            background-color: #ffeb3b;
+            padding: 2px 4px;
+            border-radius: 3px;
+        }
+        
+        .btn {
+            background: linear-gradient(45deg, #2196F3, #21CBF3);
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 16px;
+            transition: all 0.3s ease;
+        }
+        
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+        }
+        
+        @media (max-width: 768px) {
+            .container {
+                margin: 10px;
+                padding: 15px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>HTML Syntax Highlighting Test</h1>
+        
+        <h2>Bu bir test sayfasıdır</h2>
+        <p>Bu sayfa <span class="highlight">Speedy Notes</span> uygulamasının HTML syntax highlighting özelliğini test eder.</p>
+        
+        <h3>Liste Örneği</h3>
+        <ul>
+            <li>HTML etiketleri mavi renkte</li>
+            <li>Attribute'lar kırmızı renkte</li>
+            <li>Değerler yeşil renkte</li>
+            <li>Yorumlar gri renkte</li>
+        </ul>
+        
+        <h3>Form Örneği</h3>
+        <form id="testForm" method="post" action="/submit">
+            <label for="name">İsim:</label>
+            <input type="text" id="name" name="name" placeholder="Adınızı girin" required>
+            
+            <label for="email">E-posta:</label>
+            <input type="email" id="email" name="email" placeholder="e-posta@ornek.com">
+            
+            <button type="submit" class="btn">Gönder</button>
+        </form>
+        
+        <h3>HTML Entities</h3>
+        <p>Özel karakterler: &lt; &gt; &amp; &quot; &#39; &copy; &#8364;</p>
+        
+        <!-- Bu bir HTML yorumudur -->
+        <div id="jsContent">
+            <p>JavaScript ile doldurulacak içerik</p>
+        </div>
+    </div>
+    
+    <!-- JavaScript Kodu -->
+    <script>
+        // Bu bir JavaScript yorumu
+        document.addEventListener('DOMContentLoaded', function() {
+            console.log('Sayfa yüklendi!');
+            
+            const form = document.getElementById('testForm');
+            const jsContent = document.getElementById('jsContent');
+            
+            // Form submit event'i
+            form.addEventListener('submit', function(e) {
+                e.preventDefault();
+                
+                const name = document.getElementById('name').value;
+                const email = document.getElementById('email').value;
+                
+                if (name && email) {
+                    jsContent.innerHTML = `
+                        <h4>Form Verileri:</h4>
+                        <p><strong>İsim:</strong> ${name}</p>
+                        <p><strong>E-posta:</strong> ${email}</p>
+                    `;
+                } else {
+                    alert('Lütfen tüm alanları doldurun!');
+                }
+            });
+            
+            // Dinamik stil değişimi
+            const buttons = document.querySelectorAll('.btn');
+            buttons.forEach(btn => {
+                btn.addEventListener('mouseover', function() {
+                    this.style.background = 'linear-gradient(45deg, #FF5722, #FF9800)';
+                });
+                
+                btn.addEventListener('mouseout', function() {
+                    this.style.background = 'linear-gradient(45deg, #2196F3, #21CBF3)';
+                });
+            });
+        });
+        
+        /* 
+           Çok satırlı JavaScript yorumu
+           Bu bölüm syntax highlighting'i test eder
+        */
+        function testFunction() {
+            let variables = {
+                string: "Bu bir string",
+                number: 42,
+                boolean: true,
+                array: [1, 2, 3, 'dört'],
+                object: {key: 'value'}
+            };
+            
+            for (let key in variables) {
+                console.log(`${key}: ${variables[key]}`);
+            }
+            
+            return variables;
+        }
+    </script>
+</body>
+</html>
