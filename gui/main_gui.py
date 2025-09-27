@@ -141,11 +141,13 @@ class CustomTabBar(QTabBar):
         return super().tabButton(index, position)
 
 class NotDefteriGUI(QMainWindow):
-    def __init__(self):
+    def __init__(self, disable_persistence: bool = False, initial_paths=None):
         super().__init__()
         self.setWindowTitle("Speedy Notes")
         self.resize(600, 600)
         self.setWindowIcon(QIcon("resources/speedy_notes_icon.svg"))
+        self.disable_persistence = disable_persistence
+        self.initial_paths = initial_paths or []
         self.tabs = QTabWidget()
         self.tabs.setTabsClosable(True)
         self.tabs.setMovable(True)
@@ -161,11 +163,13 @@ class NotDefteriGUI(QMainWindow):
         self.memory = NoteMemory()
         self.tema = "aydinlik"
         self.logger = get_logger("NotDefteriGUI")
-        self.notes_path = os.path.join(get_data_dir(), 'notes.json')
-        self.settings_path = os.path.join(get_data_dir(), 'settings.json')
-        self.memory.load_from_file(self.notes_path)
+        self.notes_path = None if self.disable_persistence else os.path.join(get_data_dir(), 'notes.json')
+        self.settings_path = None if self.disable_persistence else os.path.join(get_data_dir(), 'settings.json')
+        if not self.disable_persistence and self.notes_path:
+            self.memory.load_from_file(self.notes_path)
         self._setup_toolbar()
-        self.tabs.currentChanged.connect(self._sekme_degisti)
+        if not self.disable_persistence:
+            self.tabs.currentChanged.connect(self._sekme_degisti)
         self.tabbar_filter = TabBarDoubleClickFilter(self.tabs.tabBar(), self._sekme_baslik_duzenle)
         self.tabs.tabBar().installEventFilter(self.tabbar_filter)
         self._notlari_yukle()
@@ -453,10 +457,16 @@ QTabBar::tab:selected { font-weight: bold; }
         if widget:
             not_edit = widget.findChild(QTextEdit)
             if not_edit:
-                self.memory.update_note(idx, content=not_edit.toHtml())
+                # Dış dosya sekmesi ise belleğe yazma; sadece dosyaya kaydet butonuyla yazılsın
+                if hasattr(self, '_file_paths') and idx in getattr(self, '_file_paths', {}):
+                    pass
+                else:
+                    self.memory.update_note(idx, content=not_edit.toHtml())
                 self._otomatik_kaydet()
 
     def _sekme_degisti(self, idx):
+        if getattr(self, 'disable_persistence', False):
+            return
         self._sekme_widget_olustur(idx)
 
     def _sekme_baslik_duzenle(self, idx):
@@ -515,18 +525,22 @@ QTabBar::tab:selected { font-weight: bold; }
             self._file_paths = {}
             
         if self.memory.note_count() == 0:
-            self._yeni_not()
+            # Başlangıçta dış dosyalar açılacaksa boş sekme oluşturma
+            if not self.initial_paths:
+                self._yeni_not()
         else:
             for i in range(self.memory.note_count()):
                 self._sekme_widget_olustur(i)
-            if last_index >= self.tabs.count():
-                last_index = 0
-            self.tabs.setCurrentIndex(last_index)
+            if not self.initial_paths:
+                if last_index >= self.tabs.count():
+                    last_index = 0
+                self.tabs.setCurrentIndex(last_index)
 
     def _sekme_widget_olustur(self, idx):
         if idx in self._tab_widgets:
-            self.tabs.setTabText(idx, self.memory.get_note(idx)["title"])
-            self.tabs.setTabToolTip(idx, self.memory.get_note(idx)["title"])
+            title = self.memory.get_note(idx)["title"] or "(dosya)"
+            self.tabs.setTabText(idx, title)
+            self.tabs.setTabToolTip(idx, title)
             self.tabs.setTabEnabled(idx, True)
             return
         note = self.memory.get_note(idx)
@@ -543,7 +557,15 @@ QTabBar::tab:selected { font-weight: bold; }
         layout.addWidget(label)
         
         not_edit = PlainTextEdit()
-        not_edit.setHtml(note["content"])
+        # Dış dosya sekmeleri için bellekte içerik tutmayalım; sadece mevcut içerik gösterilir
+        if hasattr(self, '_file_paths') and idx in self._file_paths:
+            try:
+                with open(self._file_paths[idx], 'r', encoding='utf-8') as f:
+                    not_edit.setPlainText(f.read())
+            except Exception:
+                not_edit.setPlainText("")
+        else:
+            not_edit.setHtml(note["content"])
         not_edit.textChanged.connect(self._not_guncelle)
         not_edit.undoAvailable.connect(self.undo_action.setEnabled)
         not_edit.redoAvailable.connect(self.redo_action.setEnabled)
@@ -569,23 +591,30 @@ QTabBar::tab:selected { font-weight: bold; }
         self._tab_widgets[idx] = widget
 
     def closeEvent(self, event):
-        self.memory.save_to_file(self.notes_path)
+        if not self.disable_persistence and self.notes_path:
+            self.memory.save_to_file(self.notes_path)
         try:
-            with open(self.settings_path, 'r', encoding='utf-8') as f:
-                settings = json.load(f)
+            if not self.disable_persistence and self.settings_path and os.path.exists(self.settings_path):
+                with open(self.settings_path, 'r', encoding='utf-8') as f:
+                    settings = json.load(f)
+            else:
+                settings = {}
         except Exception:
             settings = {}
-        settings['last_tab_index'] = self.tabs.currentIndex()
+        if not self.disable_persistence:
+            settings['last_tab_index'] = self.tabs.currentIndex()
         
         # Dosya yollarını kaydet
-        if hasattr(self, '_file_paths'):
-            settings['file_paths'] = self._file_paths
-        else:
-            settings['file_paths'] = {}
+        if not self.disable_persistence:
+            if hasattr(self, '_file_paths'):
+                settings['file_paths'] = self._file_paths
+            else:
+                settings['file_paths'] = {}
             
-        with open(self.settings_path, 'w', encoding='utf-8') as f:
-            json.dump(settings, f, ensure_ascii=False, indent=2)
-        self.logger.info("Notlar kaydedildi.")
+        if not self.disable_persistence and self.settings_path:
+            with open(self.settings_path, 'w', encoding='utf-8') as f:
+                json.dump(settings, f, ensure_ascii=False, indent=2)
+            self.logger.info("Notlar kaydedildi.")
         event.accept()
 
     def _arama_ac(self):
@@ -818,65 +847,72 @@ QTabBar::tab:selected { font-weight: bold; }
         )
         if not path:
             return
-        
+        self._open_file_from_path(path, show_info=True)
+
+    def _open_file_from_path(self, path: str, show_info: bool = True):
+        """Verilen yolu yeni sekme olarak açar (başlangıç parametresiyle çağrılabilir)."""
+        if not path or not os.path.isfile(path):
+            return
         try:
             with open(path, 'r', encoding='utf-8') as f:
                 content = f.read()
-            
-            # Dosya adını başlık olarak kullan
+
             file_name = os.path.basename(path)
-            
-            # Aynı dosya zaten açık mı kontrol et
-            for i in range(self.tabs.count()):
-                if self.tabs.tabText(i) == file_name:
-                    self.tabs.setCurrentIndex(i)
-                    QMessageBox.information(self, "Dosya Zaten Açık", f"'{file_name}' dosyası zaten açık.")
-                    return
-            
-            # Yeni not olarak ekle
-            yeni_not_bellek_idx = self.memory.add_note(title=file_name, content=content)
-            
+
+            # Aynı dosya zaten açık mı? Tam yol karşılaştırması yapalım
+            if hasattr(self, '_file_paths'):
+                for i, p in list(getattr(self, '_file_paths', {}).items()):
+                    if os.path.abspath(p) == os.path.abspath(path):
+                        # Zaten açık: yalnızca o sekmeye geç
+                        try:
+                            self.tabs.setCurrentIndex(int(i))
+                        except Exception:
+                            pass
+                        if show_info:
+                            QMessageBox.information(self, "Dosya Zaten Açık", f"'{file_name}' dosyası zaten açık.")
+                        return
+
+            # Yeni not olarak ekle (içeriği belleğe yazma) — sadece başlık tutalım
+            self.memory.add_note(title=file_name, content="")
+
             # Sekme widget'ı oluştur
             widget_icin_sekme = QWidget()
             layout = QVBoxLayout(widget_icin_sekme)
-              # Dosya yolu bilgisini göster
             etiket = QLabel(f"Dosya: {path}")
             etiket.setStyleSheet("color: gray; font-size: 10pt;")
             layout.addWidget(etiket)
-            
+
             not_duzenle = PlainTextEdit()
-            not_duzenle.setPlainText(content)  # HTML yerine plain text kullan
-            not_duzenle.textChanged.connect(self._not_guncelle)            # Dosya tipine göre syntax highlighting ekle
+            not_duzenle.setPlainText(content)
+            not_duzenle.textChanged.connect(self._not_guncelle)
+
             file_ext = path.lower()
             if file_ext.endswith('.py'):
-                highlighter = PythonSyntaxHighlighter(not_duzenle.document())
-                not_duzenle.highlighter = highlighter
+                not_duzenle.highlighter = PythonSyntaxHighlighter(not_duzenle.document())
             elif file_ext.endswith(('.html', '.htm')):
-                highlighter = HtmlSyntaxHighlighter(not_duzenle.document())
-                not_duzenle.highlighter = highlighter
+                not_duzenle.highlighter = HtmlSyntaxHighlighter(not_duzenle.document())
             elif file_ext.endswith('.css'):
-                highlighter = CssSyntaxHighlighter(not_duzenle.document())
-                not_duzenle.highlighter = highlighter
-            
+                not_duzenle.highlighter = CssSyntaxHighlighter(not_duzenle.document())
+
             layout.addWidget(not_duzenle)
-            
+
             # Sekmeyi ekle
             gercek_sekme_idx = self.tabs.addTab(widget_icin_sekme, file_name)
+            self.tabs.setTabToolTip(gercek_sekme_idx, file_name)
             self._tab_widgets[gercek_sekme_idx] = widget_icin_sekme
-            
-            # Dosya yolunu sekme ile ilişkilendir (kaydetme için)
+
+            # Dosya yolunu ilişkilendir
             if not hasattr(self, '_file_paths'):
                 self._file_paths = {}
             self._file_paths[gercek_sekme_idx] = path
-            
-            # Yeni sekmeyi aktif yap
+
             self.tabs.setCurrentIndex(gercek_sekme_idx)
-            
             self.logger.info(f"Dosya açıldı: {path}")
-            QMessageBox.information(self, "Dosya Açıldı", f"'{file_name}' başarıyla açıldı.")
-            
+            if show_info:
+                QMessageBox.information(self, "Dosya Açıldı", f"'{file_name}' başarıyla açıldı.")
         except Exception as e:
-            QMessageBox.warning(self, "Hata", f"Dosya açılırken hata oluştu:\n{e}")
+            if show_info:
+                QMessageBox.warning(self, "Hata", f"Dosya açılırken hata oluştu:\n{e}")
             self.logger.error(f"Dosya açma hatası: {e}")
 
     def _save_current_file(self):
@@ -944,31 +980,43 @@ QTabBar::tab:selected { font-weight: bold; }
                     self.logger.error(f"Dosya kaydetme hatası: {e}")
 
     def _otomatik_kaydet(self):
-        self.memory.save_to_file(self.notes_path)
+        if not self.disable_persistence and self.notes_path:
+            self.memory.save_to_file(self.notes_path)
         self.logger.info("Değişiklikler otomatik kaydedildi.")
         # Son aktif sekmeyi de kaydet
         try:
-            with open(self.settings_path, 'r', encoding='utf-8') as f:
-                settings = json.load(f)
+            if not self.disable_persistence and self.settings_path and os.path.exists(self.settings_path):
+                with open(self.settings_path, 'r', encoding='utf-8') as f:
+                    settings = json.load(f)
+            else:
+                settings = {}
         except Exception:
             settings = {}
-        settings['last_tab_index'] = self.tabs.currentIndex()
+        if not self.disable_persistence:
+            settings['last_tab_index'] = self.tabs.currentIndex()
         
         # Dosya yollarını kaydet
-        if hasattr(self, '_file_paths'):
-            settings['file_paths'] = self._file_paths
-        else:
-            settings['file_paths'] = {}
+        if not self.disable_persistence:
+            if hasattr(self, '_file_paths'):
+                settings['file_paths'] = self._file_paths
+            else:
+                settings['file_paths'] = {}
             
         try:
-            with open(self.settings_path, 'w', encoding='utf-8') as f:
-                json.dump(settings, f, ensure_ascii=False, indent=2)
-            self.logger.info(f"Ayarlar kaydedildi, son aktif sekme: {self.tabs.currentIndex()}")
+            if not self.disable_persistence and self.settings_path:
+                with open(self.settings_path, 'w', encoding='utf-8') as f:
+                    json.dump(settings, f, ensure_ascii=False, indent=2)
+                self.logger.info(f"Ayarlar kaydedildi, son aktif sekme: {self.tabs.currentIndex()}")
         except Exception as e:
             self.logger.error(f"Ayarlar kaydedilemedi: {e}")
 
-def main():
+def main(initial_paths=None):
     app = QApplication(sys.argv)
-    pencere = NotDefteriGUI()
+    # initial_paths varsa kalıcı depolamayı devre dışı bırak
+    disable_persistence = bool(initial_paths)
+    pencere = NotDefteriGUI(disable_persistence=disable_persistence, initial_paths=initial_paths or [])
     pencere.show()
+    if initial_paths:
+        for p in initial_paths:
+            pencere._open_file_from_path(p, show_info=False)
     sys.exit(app.exec())

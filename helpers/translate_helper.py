@@ -1,5 +1,4 @@
 import os
-import requests
 
 GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY')
 GEMINI_API_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent'
@@ -9,6 +8,10 @@ def gemini_translate(text, target_lang='tr'):
     """
     Google Gemini API ile metni belirtilen dile çevirir.
     """
+    try:
+        import requests  # Lazy import, paket eksikse uygulama çökmesin
+    except Exception:
+        return "Çeviri özelliği için 'requests' paketi gerekli (pakette yer almıyor)."
     if not GEMINI_API_KEY:
         raise RuntimeError('GEMINI_API_KEY ortam değişkeni tanımlı değil.')
     headers = {"Content-Type": "application/json"}

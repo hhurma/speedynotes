@@ -6,12 +6,15 @@ class NoteMemory:
     def __init__(self):
         self.notes = []  # Her not: {"title": ..., "content": ..., "datetime": ...}
 
-    def add_note(self, title="Yeni Not", content=""):
+    def add_note(self, title="Yeni Not", content="", **kwargs):
         note = {
             "title": title,
             "content": content,
             "datetime": datetime.now().strftime("%Y-%m-%d %H:%M")
         }
+        # Ek alanları (örn. external_path) nota işle
+        for k, v in kwargs.items():
+            note[k] = v
         self.notes.append(note)
         return len(self.notes) - 1
 
@@ -36,8 +39,10 @@ class NoteMemory:
 
     def save_to_file(self, filepath):
         try:
+            # Dış dosya sekmelerini (external_path atanmış notları) kalıcı depoya yazma
+            notes_to_persist = [n for n in self.notes if 'external_path' not in n]
             with open(filepath, 'w', encoding='utf-8') as f:
-                json.dump(self.notes, f, ensure_ascii=False, indent=2)
+                json.dump(notes_to_persist, f, ensure_ascii=False, indent=2)
             return True
         except Exception as e:
             return False
