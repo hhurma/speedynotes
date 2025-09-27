@@ -6,11 +6,12 @@ class NoteMemory:
     def __init__(self):
         self.notes = []  # Her not: {"title": ..., "content": ..., "datetime": ...}
 
-    def add_note(self, title="Yeni Not", content="", **kwargs):
+    def add_note(self, title="Yeni Not", content="", is_favorite=False, **kwargs):
         note = {
             "title": title,
             "content": content,
-            "datetime": datetime.now().strftime("%Y-%m-%d %H:%M")
+            "datetime": datetime.now().strftime("%Y-%m-%d %H:%M"),
+            "is_favorite": is_favorite
         }
         # Ek alanları (örn. external_path) nota işle
         for k, v in kwargs.items():
@@ -18,12 +19,14 @@ class NoteMemory:
         self.notes.append(note)
         return len(self.notes) - 1
 
-    def update_note(self, index, content=None, title=None):
+    def update_note(self, index, content=None, title=None, is_favorite=None):
         if 0 <= index < len(self.notes):
             if content is not None:
                 self.notes[index]["content"] = content
             if title is not None:
                 self.notes[index]["title"] = title
+            if is_favorite is not None:
+                self.notes[index]["is_favorite"] = is_favorite
 
     def get_note(self, index):
         if 0 <= index < len(self.notes):

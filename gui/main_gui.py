@@ -1,6 +1,6 @@
-from PyQt6.QtWidgets import QApplication, QMainWindow, QTabWidget, QTextEdit, QVBoxLayout, QWidget, QInputDialog, QToolBar, QMessageBox, QLabel, QSplashScreen, QTabBar, QToolButton, QHBoxLayout, QDialog, QLineEdit, QListWidget, QListWidgetItem, QDialogButtonBox, QPushButton
+from PyQt6.QtWidgets import QApplication, QMainWindow, QTabWidget, QTextEdit, QVBoxLayout, QWidget, QInputDialog, QToolBar, QMessageBox, QLabel, QSplashScreen, QTabBar, QToolButton, QHBoxLayout, QDialog, QLineEdit, QListWidget, QListWidgetItem, QDialogButtonBox, QPushButton, QDockWidget, QSplitter
 from PyQt6.QtGui import QIcon, QAction, QClipboard, QPixmap, QMouseEvent
-from PyQt6.QtCore import Qt, QSize, QMimeData, QObject, QEvent
+from PyQt6.QtCore import Qt, QSize, QMimeData, QObject, QEvent, QPropertyAnimation, QEasingCurve, QRect
 from PyQt6.QtPrintSupport import QPrinter
 from PyQt6.QtWidgets import QFileDialog
 import sys
@@ -172,11 +172,24 @@ class NotDefteriGUI(QMainWindow):
             self.tabs.currentChanged.connect(self._sekme_degisti)
         self.tabbar_filter = TabBarDoubleClickFilter(self.tabs.tabBar(), self._sekme_baslik_duzenle)
         self.tabs.tabBar().installEventFilter(self.tabbar_filter)
+        self._setup_favori_panel()
         self._notlari_yukle()
         self._center_window()
         self.tabs.setStyleSheet("""
 QTabBar::tab:selected { font-weight: bold; }
 """)
+        # Başlangıçta favori action güncelle
+        self._favori_action_guncelle()
+
+    def _setup_favori_panel(self):
+        self.favori_dock = QDockWidget("Favoriler", self)
+        self.favori_dock.setAllowedAreas(Qt.DockWidgetArea.LeftDockWidgetArea)
+        self.favori_list = QListWidget()
+        self.favori_list.itemClicked.connect(self._favori_item_tikla)
+        self.favori_dock.setWidget(self.favori_list)
+        self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, self.favori_dock)
+        self.favori_dock.setFeatures(QDockWidget.DockWidgetFeature.DockWidgetClosable | QDockWidget.DockWidgetFeature.DockWidgetFloatable)
+        self.favori_dock.hide()
 
     def _setup_toolbar(self):
         toolbar = QToolBar()
@@ -215,6 +228,16 @@ QTabBar::tab:selected { font-weight: bold; }
         toolbar.addAction(kopyla_aksiyon)
         
         toolbar.addSeparator()
+
+        # Favori action ekle
+        self.favori_action = QAction(qta.icon('fa5s.heart', color='red'), "Favori Yap", self)
+        self.favori_action.triggered.connect(self._toggle_favori)
+        toolbar.addAction(self.favori_action)
+
+        # Favori panel toggle
+        self.panel_toggle_action = QAction(qta.icon('fa5s.list', color='blue'), "Favori Paneli", self)
+        self.panel_toggle_action.triggered.connect(self._toggle_favori_panel)
+        toolbar.addAction(self.panel_toggle_action)
 
         # Bold
         bold_icon = qta.icon('fa5s.bold', color='#1976D2')  # Mavi
@@ -255,7 +278,6 @@ QTabBar::tab:selected { font-weight: bold; }
         toolbar.addAction(font_increase_action)
         self.addAction(font_increase_action)
 
-        
         
         toolbar.addSeparator()
 
@@ -464,10 +486,76 @@ QTabBar::tab:selected { font-weight: bold; }
                     self.memory.update_note(idx, content=not_edit.toHtml())
                 self._otomatik_kaydet()
 
+    def _favori_action_guncelle(self):
+        idx = self.tabs.currentIndex()
+        if idx >= 0:
+            note = self.memory.get_note(idx)
+            is_fav = note.get('is_favorite', False)
+            self.favori_action.setText("Favori Kaldır" if is_fav else "Favori Yap")
+            self.favori_action.setIcon(qta.icon('fa5s.heart-broken', color='gray') if is_fav else qta.icon('fa5s.heart', color='red'))
+        else:
+            self.favori_action.setText("Favori Yap")
+            self.favori_action.setIcon(qta.icon('fa5s.heart', color='red'))
+
+    def _toggle_favori(self):
+        idx = self.tabs.currentIndex()
+        if idx < 0:
+            return
+        note = self.memory.get_note(idx)
+        yeni_durum = not note.get('is_favorite', False)
+        self.memory.update_note(idx, is_favorite=yeni_durum)
+        # İkon güncelle
+        if yeni_durum:
+            self.tabs.setTabIcon(idx, qta.icon('fa5s.heart', color='red'))
+            # En başa taşı
+            self.tabs.tabBar().moveTab(idx, 0)
+            # Memory'yi güncelle (taşıma sinyali tetiklenecek)
+            self._favori_listeyi_guncelle()
+        else:
+            self.tabs.setTabIcon(idx, QIcon())
+            # Animasyon: Fade out
+            self._favori_kaldirma_animasyonu(idx)
+        self._favori_action_guncelle()
+        self._otomatik_kaydet()
+        self.logger.info(f"Not {idx+1} favori durumu: {yeni_durum}")
+
     def _sekme_degisti(self, idx):
         if getattr(self, 'disable_persistence', False):
             return
         self._sekme_widget_olustur(idx)
+        self._favori_action_guncelle()
+        self._favori_listeyi_guncelle()
+
+    def _favori_kaldirma_animasyonu(self, idx):
+        tab = self.tabs.tabBar()
+        anim = QPropertyAnimation(tab, b"windowOpacity")
+        anim.setDuration(500)
+        anim.setStartValue(1.0)
+        anim.setEndValue(0.0)
+        anim.setEasingCurve(QEasingCurve.Type.OutQuad)
+        anim.finished.connect(lambda: anim.setStartValue(0.0))  # Reset
+        anim.start()
+
+    def _favori_listeyi_guncelle(self):
+        self.favori_list.clear()
+        for i, note in enumerate(self.memory.notes):
+            if note.get('is_favorite', False):
+                item = QListWidgetItem(note['title'])
+                item.setData(Qt.ItemDataRole.UserRole, i)
+                self.favori_list.addItem(item)
+
+    def _favori_item_tikla(self, item):
+        idx = item.data(Qt.ItemDataRole.UserRole)
+        self.tabs.setCurrentIndex(idx)
+
+    def _toggle_favori_panel(self):
+        if self.favori_dock.isVisible():
+            self.favori_dock.hide()
+            self.panel_toggle_action.setText("Favori Paneli Göster")
+        else:
+            self._favori_listeyi_guncelle()
+            self.favori_dock.show()
+            self.panel_toggle_action.setText("Favori Paneli Gizle")
 
     def _sekme_baslik_duzenle(self, idx):
         self.logger.info(f"Tab bar çift tıklandı, indeks: {idx}")
@@ -529,18 +617,32 @@ QTabBar::tab:selected { font-weight: bold; }
             if not self.initial_paths:
                 self._yeni_not()
         else:
+            # Favorileri önce al
+            favori_notlar = [n for n in self.memory.notes if n.get('is_favorite', False)]
+            diger_notlar = [n for n in self.memory.notes if not n.get('is_favorite', False)]
+            sirali_notlar = favori_notlar + diger_notlar
+            # Memory'yi güncelle
+            self.memory.notes = sirali_notlar
             for i in range(self.memory.note_count()):
                 self._sekme_widget_olustur(i)
             if not self.initial_paths:
                 if last_index >= self.tabs.count():
                     last_index = 0
                 self.tabs.setCurrentIndex(last_index)
+        self._favori_listeyi_guncelle()
+        self._favori_action_guncelle()  # Başlangıçta güncelle
 
     def _sekme_widget_olustur(self, idx):
         if idx in self._tab_widgets:
             title = self.memory.get_note(idx)["title"] or "(dosya)"
             self.tabs.setTabText(idx, title)
             self.tabs.setTabToolTip(idx, title)
+            # Favori icon ekle
+            note = self.memory.get_note(idx)
+            if note.get('is_favorite', False):
+                self.tabs.setTabIcon(idx, qta.icon('fa5s.heart', color='red'))
+            else:
+                self.tabs.setTabIcon(idx, QIcon())
             self.tabs.setTabEnabled(idx, True)
             return
         note = self.memory.get_note(idx)
@@ -589,6 +691,11 @@ QTabBar::tab:selected { font-weight: bold; }
         self.tabs.insertTab(idx, widget, note["title"])
         self.tabs.currentChanged.connect(self._sekme_degisti)
         self._tab_widgets[idx] = widget
+        # Icon ayarla
+        if note.get('is_favorite', False):
+            self.tabs.setTabIcon(idx, qta.icon('fa5s.heart', color='red'))
+        else:
+            self.tabs.setTabIcon(idx, QIcon())
 
     def closeEvent(self, event):
         if not self.disable_persistence and self.notes_path:
@@ -792,7 +899,17 @@ QTabBar::tab:selected { font-weight: bold; }
         # 3. Değişiklikleri kaydet (yeni sıra ve potansiyel olarak değişen aktif sekme)
         self._otomatik_kaydet()
         
+        # Tüm ikonları güncelle
+        for i in range(self.tabs.count()):
+            note = self.memory.get_note(i)
+            if note.get('is_favorite', False):
+                self.tabs.setTabIcon(i, qta.icon('fa5s.heart', color='red'))
+            else:
+                self.tabs.setTabIcon(i, QIcon())
+        
         self.logger.info(f"Sekme başarıyla taşındı: {eski_idx} -> {yeni_idx}. Yeni not sırası ve ayarlar kaydedildi.")
+        
+        self._favori_listeyi_guncelle()
 
     def _export_all_notes_pdf(self):
         path, _ = QFileDialog.getSaveFileName(self, "PDF Olarak Kaydet", "tum_notlar.pdf", "PDF Dosyası (*.pdf)")
