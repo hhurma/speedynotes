@@ -1,5 +1,5 @@
 from PyQt6.QtWidgets import QApplication, QMainWindow, QTabWidget, QTextEdit, QVBoxLayout, QWidget, QInputDialog, QToolBar, QMessageBox, QLabel, QSplashScreen, QTabBar, QToolButton, QHBoxLayout, QDialog, QLineEdit, QListWidget, QListWidgetItem, QDialogButtonBox, QPushButton, QDockWidget, QSplitter
-from PyQt6.QtGui import QIcon, QAction, QClipboard, QPixmap, QMouseEvent
+from PyQt6.QtGui import QIcon, QAction, QClipboard, QPixmap, QMouseEvent, QTextCursor
 from PyQt6.QtCore import Qt, QSize, QMimeData, QObject, QEvent, QPropertyAnimation, QEasingCurve, QRect
 from PyQt6.QtPrintSupport import QPrinter
 from PyQt6.QtWidgets import QFileDialog
@@ -37,6 +37,54 @@ class PlainTextEdit(QTextEdit):
             self.insertPlainText(source.text())
         else:
             super().insertFromMimeData(source)
+
+    def keyPressEvent(self, event):
+        if event.key() == Qt.Key.Key_Return or event.key() == Qt.Key.Key_Enter:
+            cursor = self.textCursor()
+            # Mevcut satırın başlangıcını kontrol et
+            cursor.movePosition(QTextCursor.MoveOperation.StartOfBlock)
+            cursor.movePosition(QTextCursor.MoveOperation.EndOfBlock, QTextCursor.MoveMode.KeepAnchor)
+            current_line = cursor.selectedText()
+
+            # Bullet karakterlerini tanımla
+            bullet_chars = ['• ', '- ', '* ']
+
+            # Satırın hangi bullet ile başladığını kontrol et
+            bullet_type = None
+            for bullet in bullet_chars:
+                if current_line.startswith(bullet):
+                    bullet_type = bullet
+                    break
+
+            if bullet_type:
+                    # Bullet ile başlayan satır
+                    remaining_text = current_line[len(bullet_type):].strip()
+                    if remaining_text == "":
+                        # Boş bullet satırı - bullet'i kaldır ve normal enter yap
+                        cursor.setPosition(cursor.selectionStart())
+                        cursor.movePosition(QTextCursor.MoveOperation.StartOfBlock)
+                        cursor.movePosition(QTextCursor.MoveOperation.Right, QTextCursor.MoveMode.KeepAnchor, len(bullet_type))
+                        cursor.removeSelectedText()
+
+                        # Block format'ı da sıfırla
+                        from PyQt6.QtGui import QTextBlockFormat
+                        default_format = QTextBlockFormat()
+                        cursor.setBlockFormat(default_format)
+
+                        super().keyPressEvent(event)
+                    else:
+                        # İçerikli bullet satırı - yeni satıra aynı bullet ekle
+                        super().keyPressEvent(event)
+                        cursor = self.textCursor()
+                        cursor.insertText(bullet_type)
+                        # Yeni satıra format uygula
+                        self._apply_bullet_format(cursor, bullet_type)
+            else:
+                # Normal satır - normal Enter davranışı
+                super().keyPressEvent(event)
+        else:
+            # Diğer tuşlar için normal davranış
+            super().keyPressEvent(event)
 
     def contextMenuEvent(self, event):
         menu = self.createStandardContextMenu()
@@ -145,7 +193,17 @@ class NotDefteriGUI(QMainWindow):
         super().__init__()
         self.setWindowTitle("Speedy Notes")
         self.resize(600, 600)
-        self.setWindowIcon(QIcon("resources/speedy_notes_icon.svg"))
+        # PyInstaller bundle için doğru yol
+        try:
+            import sys
+            if hasattr(sys, '_MEIPASS'):
+                icon_path = os.path.join(sys._MEIPASS, "resources", "speedy_notes_icon.svg")
+            else:
+                icon_path = "resources/speedy_notes_icon.svg"
+            self.setWindowIcon(QIcon(icon_path))
+        except:
+            # Icon yüklenemezse sessizce geç
+            pass
         self.disable_persistence = disable_persistence
         self.initial_paths = initial_paths or []
         self.tabs = QTabWidget()
@@ -262,6 +320,30 @@ QTabBar::tab:selected { font-weight: bold; }
         strike_action.triggered.connect(self._strike_text)
         toolbar.addAction(strike_action)
         self.addAction(strike_action)
+
+        # Bullet List - farklı stiller
+        bullet_icon = qta.icon('fa5s.list-ul', color='#9C27B0')  # Mor
+        bullet_action = QAction(bullet_icon, "Madde İmi • (Ctrl+Shift+L)", self)
+        bullet_action.setShortcut('Ctrl+Shift+L')
+        bullet_action.triggered.connect(lambda: self._bullet_text('• '))
+        toolbar.addAction(bullet_action)
+        self.addAction(bullet_action)
+
+        # Dash Bullet
+        dash_icon = qta.icon('fa5s.minus', color='#9C27B0')  # Mor
+        dash_action = QAction(dash_icon, "Çizgi Madde - (Ctrl+Shift+D)", self)
+        dash_action.setShortcut('Ctrl+Shift+D')
+        dash_action.triggered.connect(lambda: self._bullet_text('- '))
+        toolbar.addAction(dash_action)
+        self.addAction(dash_action)
+
+        # Asterisk Bullet
+        asterisk_icon = qta.icon('fa5s.star', color='#9C27B0')  # Mor
+        asterisk_action = QAction(asterisk_icon, "Yıldız Madde * (Ctrl+Shift+A)", self)
+        asterisk_action.setShortcut('Ctrl+Shift+A')
+        asterisk_action.triggered.connect(lambda: self._bullet_text('* '))
+        toolbar.addAction(asterisk_action)
+        self.addAction(asterisk_action)
 
         font_decrease_icon = qta.icon('fa5s.text-height', color='#F44336')
         font_decrease_action = QAction(font_decrease_icon, "Yazı Boyutunu Azalt (Ctrl+Shift+Aşağı)", self)
@@ -790,6 +872,108 @@ QTabBar::tab:selected { font-weight: bold; }
             fmt.setFontStrikeOut(not fmt.fontStrikeOut())
             not_edit.mergeCurrentCharFormat(fmt)
 
+    def _bullet_text(self, bullet_style='• '):
+        not_edit = self._aktif_not_edit()
+        if not_edit:
+            cursor = not_edit.textCursor()
+
+            # QTextBlockFormat için font metriklerini al
+            font = not_edit.currentFont()
+            font_metrics = not_edit.fontMetrics()
+
+            if cursor.hasSelection():
+                # Seçili metni işle - basit toggle
+                start = cursor.selectionStart()
+                end = cursor.selectionEnd()
+
+                # Seçili blokları topla
+                blocks_to_process = []
+                temp_cursor = QTextCursor(cursor)
+                temp_cursor.setPosition(start)
+                temp_cursor.movePosition(QTextCursor.MoveOperation.StartOfBlock)
+
+                while temp_cursor.position() <= end and temp_cursor.block().isValid():
+                    blocks_to_process.append(temp_cursor.block())
+                    temp_cursor.movePosition(QTextCursor.MoveOperation.NextBlock)
+
+                # Her bloku işle
+                for block in blocks_to_process:
+                    cursor.setPosition(block.position())
+                    cursor.movePosition(QTextCursor.MoveOperation.StartOfBlock)
+
+                    line_text = block.text()
+
+                    # Herhangi bir bullet varsa onu kaldır
+                    bullet_removed = False
+                    for b in ['• ', '- ', '* ']:
+                        if line_text.startswith(b):
+                            cursor.movePosition(QTextCursor.MoveOperation.Right, QTextCursor.MoveMode.KeepAnchor, len(b))
+                            cursor.removeSelectedText()
+                            bullet_removed = True
+                            break
+
+                    # Yeni bullet ekle (eğer satır boş değilse)
+                    if not bullet_removed and line_text.strip():  # Sadece yeni bullet ekle
+                        cursor.movePosition(QTextCursor.MoveOperation.StartOfBlock)
+                        cursor.insertText(bullet_style)
+                        # İkinci satırları hizalamak için block format uygula
+                        self._apply_bullet_format(cursor, bullet_style)
+                    elif bullet_removed:  # Bullet değiştirildi
+                        cursor.movePosition(QTextCursor.MoveOperation.StartOfBlock)
+                        cursor.insertText(bullet_style)
+                        # İkinci satırları hizalamak için block format uygula
+                        self._apply_bullet_format(cursor, bullet_style)
+
+                # Cursor'ı son pozisyona götür
+                cursor.setPosition(end)
+                cursor.movePosition(QTextCursor.MoveOperation.EndOfBlock)
+
+            else:
+                # Mevcut satır için bullet değiştirme davranışı
+                cursor.movePosition(QTextCursor.MoveOperation.StartOfBlock)
+                line_text = cursor.block().text()
+
+                # Herhangi bir bullet varsa onu kaldır
+                bullet_removed = False
+                for b in ['• ', '- ', '* ']:
+                    if line_text.startswith(b):
+                        cursor.movePosition(QTextCursor.MoveOperation.Right, QTextCursor.MoveMode.KeepAnchor, len(b))
+                        cursor.removeSelectedText()
+                        bullet_removed = True
+                        break
+
+                # Yeni bullet ekle (eğer satır boş değilse)
+                if not bullet_removed and line_text.strip():  # Sadece yeni bullet ekle
+                    cursor.movePosition(QTextCursor.MoveOperation.StartOfBlock)
+                    cursor.insertText(bullet_style)
+                    # İkinci satırları hizalamak için block format uygula
+                    self._apply_bullet_format(cursor, bullet_style)
+                elif bullet_removed:  # Bullet değiştirildi
+                    cursor.movePosition(QTextCursor.MoveOperation.StartOfBlock)
+                    cursor.insertText(bullet_style)
+                    # İkinci satırları hizalamak için block format uygula
+                    self._apply_bullet_format(cursor, bullet_style)
+
+                cursor.movePosition(QTextCursor.MoveOperation.EndOfBlock)
+
+    def _apply_bullet_format(self, cursor, bullet_style):
+        """Bullet eklenmiş satıra ikinci satır hizalama formatı uygular"""
+        from PyQt6.QtGui import QTextBlockFormat
+
+        # Font metriklerini al
+        font_metrics = self.fontMetrics()
+
+        # Bullet genişliğini hesapla
+        bullet_width = font_metrics.horizontalAdvance(bullet_style)
+
+        # Block format oluştur - ikinci satırları hizala
+        block_format = QTextBlockFormat()
+        block_format.setLeftMargin(bullet_width)  # Sol margin ile ikinci satırları kaydır
+
+        # Formatı uygula
+        cursor.movePosition(QTextCursor.MoveOperation.StartOfBlock)
+        cursor.setBlockFormat(block_format)
+
     def _cut_text(self):
         not_edit = self._aktif_not_edit()
         if not_edit:
@@ -1128,6 +1312,12 @@ QTabBar::tab:selected { font-weight: bold; }
             self.logger.error(f"Ayarlar kaydedilemedi: {e}")
 
 def main(initial_paths=None):
+    # macOS için environment variables
+    import os
+    os.environ['QT_QPA_PLATFORM_PLUGIN_PATH'] = os.path.join(sys._MEIPASS if hasattr(sys, '_MEIPASS') else '.', 'PyQt6', 'Qt6', 'plugins', 'platforms')
+    # High DPI scaling için environment variable
+    os.environ['QT_ENABLE_HIGHDPI_SCALING'] = '1'
+
     app = QApplication(sys.argv)
     # initial_paths varsa kalıcı depolamayı devre dışı bırak
     disable_persistence = bool(initial_paths)
