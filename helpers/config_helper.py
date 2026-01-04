@@ -1,7 +1,13 @@
 import os
 import json
+import sys
 
-SETTINGS_PATH = 'config/settings.json'
+# PyInstaller bundle için kullanıcının home dizinine yaz
+if hasattr(sys, '_MEIPASS'):
+    SETTINGS_DIR = os.path.expanduser('~/Library/Application Support/SpeedyNotes')
+    SETTINGS_PATH = os.path.join(SETTINGS_DIR, 'settings.json')
+else:
+    SETTINGS_PATH = 'config/settings.json'
 
 # Ayarlardan notes/settings yolunu oku
 
@@ -16,7 +22,12 @@ def get_data_dir():
         return 'config'
 
 def set_data_dir(path):
-    os.makedirs('config', exist_ok=True)
+    # PyInstaller bundle için config klasörü oluştur
+    if hasattr(sys, '_MEIPASS'):
+        config_dir = SETTINGS_DIR
+    else:
+        config_dir = 'config'
+    os.makedirs(config_dir, exist_ok=True)
     try:
         if os.path.exists(SETTINGS_PATH):
             with open(SETTINGS_PATH, 'r', encoding='utf-8') as f:
