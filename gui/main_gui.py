@@ -1,6 +1,6 @@
 from PyQt6.QtWidgets import QApplication, QMainWindow, QTabWidget, QTextEdit, QVBoxLayout, QWidget, QInputDialog, QToolBar, QMessageBox, QLabel, QSplashScreen, QTabBar, QToolButton, QHBoxLayout, QDialog, QLineEdit, QListWidget, QListWidgetItem, QDialogButtonBox, QPushButton, QDockWidget, QSplitter
 from PyQt6.QtGui import QIcon, QAction, QClipboard, QPixmap, QMouseEvent
-from PyQt6.QtCore import Qt, QSize, QMimeData, QObject, QEvent, QPropertyAnimation, QEasingCurve, QRect
+from PyQt6.QtCore import Qt, QSize, QMimeData, QObject, QEvent, QPropertyAnimation, QEasingCurve, QRect, QTimer
 from PyQt6.QtPrintSupport import QPrinter
 from PyQt6.QtWidgets import QFileDialog
 import sys
@@ -180,6 +180,11 @@ QTabBar::tab:selected { font-weight: bold; }
 """)
         # Başlangıçta favori action güncelle
         self._favori_action_guncelle()
+        
+        # Debounce timer for auto-save (1 saniye gecikme)
+        self._save_timer = QTimer()
+        self._save_timer.setSingleShot(True)
+        self._save_timer.timeout.connect(self._do_auto_save)
 
     def _setup_favori_panel(self):
         self.favori_dock = QDockWidget("Favoriler", self)
@@ -484,7 +489,10 @@ QTabBar::tab:selected { font-weight: bold; }
                     pass
                 else:
                     self.memory.update_note(idx, content=not_edit.toHtml())
-                self._otomatik_kaydet()
+                # Debounce: Her değişiklikte timer'ı yeniden başlat
+                # Bu sayede yazma bitene kadar kayıt yapılmaz
+                self._save_timer.stop()
+                self._save_timer.start(1000)  # 1 saniye sonra kaydet
 
     def _favori_action_guncelle(self):
         idx = self.tabs.currentIndex()
@@ -698,30 +706,14 @@ QTabBar::tab:selected { font-weight: bold; }
             self.tabs.setTabIcon(idx, QIcon())
 
     def closeEvent(self, event):
-        if not self.disable_persistence and self.notes_path:
-            self.memory.save_to_file(self.notes_path)
-        try:
-            if not self.disable_persistence and self.settings_path and os.path.exists(self.settings_path):
-                with open(self.settings_path, 'r', encoding='utf-8') as f:
-                    settings = json.load(f)
-            else:
-                settings = {}
-        except Exception:
-            settings = {}
-        if not self.disable_persistence:
-            settings['last_tab_index'] = self.tabs.currentIndex()
+        # Bekleyen kaydetme timer'ını durdur ve hemen kaydet
+        if hasattr(self, '_save_timer'):
+            self._save_timer.stop()
         
-        # Dosya yollarını kaydet
-        if not self.disable_persistence:
-            if hasattr(self, '_file_paths'):
-                settings['file_paths'] = self._file_paths
-            else:
-                settings['file_paths'] = {}
-            
-        if not self.disable_persistence and self.settings_path:
-            with open(self.settings_path, 'w', encoding='utf-8') as f:
-                json.dump(settings, f, ensure_ascii=False, indent=2)
-            self.logger.info("Notlar kaydedildi.")
+        # Son kaydetmeyi yap
+        self._otomatik_kaydet()
+        
+        self.logger.info("Uygulama kapatılıyor, tüm değişiklikler kaydedildi.")
         event.accept()
 
     def _arama_ac(self):
@@ -1096,36 +1088,61 @@ QTabBar::tab:selected { font-weight: bold; }
                     QMessageBox.warning(self, "Hata", f"Dosya kaydedilirken hata oluştu:\n{e}")
                     self.logger.error(f"Dosya kaydetme hatası: {e}")
 
+    def _do_auto_save(self):
+        """Debounce timer'dan çağrılan gerçek kaydetme fonksiyonu."""
+        self._otomatik_kaydet()
+
     def _otomatik_kaydet(self):
-        if not self.disable_persistence and self.notes_path:
-            self.memory.save_to_file(self.notes_path)
-        self.logger.info("Değişiklikler otomatik kaydedildi.")
-        # Son aktif sekmeyi de kaydet
-        try:
-            if not self.disable_persistence and self.settings_path and os.path.exists(self.settings_path):
-                with open(self.settings_path, 'r', encoding='utf-8') as f:
-                    settings = json.load(f)
-            else:
-                settings = {}
-        except Exception:
-            settings = {}
-        if not self.disable_persistence:
-            settings['last_tab_index'] = self.tabs.currentIndex()
-        
-        # Dosya yollarını kaydet
-        if not self.disable_persistence:
-            if hasattr(self, '_file_paths'):
-                settings['file_paths'] = self._file_paths
-            else:
-                settings['file_paths'] = {}
+        if self.disable_persistence:
+            return
             
-        try:
-            if not self.disable_persistence and self.settings_path:
+        # Notları kaydet
+        if self.notes_path:
+            try:
+                # Dizin yoksa oluştur
+                notes_dir = os.path.dirname(self.notes_path)
+                if notes_dir and not os.path.exists(notes_dir):
+                    os.makedirs(notes_dir, exist_ok=True)
+                
+                success = self.memory.save_to_file(self.notes_path)
+                if success:
+                    self.logger.info("Notlar otomatik kaydedildi.")
+                else:
+                    self.logger.error("Notlar kaydedilemedi!")
+            except Exception as e:
+                self.logger.error(f"Not kaydetme hatası: {e}")
+        
+        # Ayarları kaydet
+        if self.settings_path:
+            try:
+                # Dizin yoksa oluştur
+                settings_dir = os.path.dirname(self.settings_path)
+                if settings_dir and not os.path.exists(settings_dir):
+                    os.makedirs(settings_dir, exist_ok=True)
+                
+                # Mevcut ayarları oku veya boş başla
+                settings = {}
+                if os.path.exists(self.settings_path):
+                    try:
+                        with open(self.settings_path, 'r', encoding='utf-8') as f:
+                            settings = json.load(f)
+                    except Exception:
+                        settings = {}
+                
+                # Ayarları güncelle
+                settings['last_tab_index'] = self.tabs.currentIndex()
+                if hasattr(self, '_file_paths'):
+                    # JSON keys must be strings
+                    settings['file_paths'] = {str(k): v for k, v in self._file_paths.items()}
+                else:
+                    settings['file_paths'] = {}
+                
+                # Ayarları yaz
                 with open(self.settings_path, 'w', encoding='utf-8') as f:
                     json.dump(settings, f, ensure_ascii=False, indent=2)
                 self.logger.info(f"Ayarlar kaydedildi, son aktif sekme: {self.tabs.currentIndex()}")
-        except Exception as e:
-            self.logger.error(f"Ayarlar kaydedilemedi: {e}")
+            except Exception as e:
+                self.logger.error(f"Ayarlar kaydedilemedi: {e}")
 
 def main(initial_paths=None):
     app = QApplication(sys.argv)
